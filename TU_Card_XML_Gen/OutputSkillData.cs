@@ -17,8 +17,9 @@ namespace TU_Card_XML_Gen
         public string[] s2;
         public int[] n;
         public string[] trigger;
+        public bool[] skipThisLevel;
 
-        public OutputSkillData(string skillId, int[] x, int[] y, int[] all, int[] c, string[] s, string[] s2, int[] n, string[] trigger)
+        public OutputSkillData(string skillId, int[] x, int[] y, int[] all, int[] c, string[] s, string[] s2, int[] n, string[] trigger, bool[] skipThisLevel)
         {
             this.skillId = skillId;
             this.x = x;
@@ -29,6 +30,7 @@ namespace TU_Card_XML_Gen
             this.s2 = s2;
             this.n = n;
             this.trigger = trigger;
+            this.skipThisLevel = skipThisLevel;
         }
     }
 }
