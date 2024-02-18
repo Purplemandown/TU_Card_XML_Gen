@@ -18,6 +18,18 @@ Rush
 Flying?
 
 
+If you want to span the update across more than one card (e.g. multiple fusion levels of the same card), you'd do the following:
+
+Benediction|Holy Benediction|Pure Benediction
+Legendary Righteous
+60/200/4
+Evade 20
+Rally All RT 100 OnAttacked
+Mortar All 60
+
+The lowest rank card should be first, and they should proceed in ascending order.  Note that the system does not check if the cards are actually different fusion ranks of one another, and will attempt to handle it if you span cards that aren't related, so this should be avoided.
+
+
 Skills with one param (value):
 
 Armor <value>
