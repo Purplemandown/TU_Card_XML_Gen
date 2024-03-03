@@ -100,8 +100,13 @@ namespace TUComparatorLibrary
             { " zerk", " berserk" }
         };
 
+        private string outputDirectory = $"output-{DateTime.Now.ToString("yyyy-MM-dd-hh-mm-ss")}";
+
         public void Run(string oldXmlDirectory, string updateFilePath)
         {
+            //Create the folder for the run.
+            Directory.CreateDirectory(outputDirectory);
+
             string skillData = File.ReadAllText($@"{oldXmlDirectory}//skills_set.xml");
             XDocument skillDataDoc = XDocument.Parse(skillData);
             Updater.skillData = skillDataDoc.XPathSelectElements("//root/skillType").ToList();
@@ -417,11 +422,13 @@ namespace TUComparatorLibrary
                         {
                             // get the old XML and delete it.
                             XElement newXml = newXmls[cardId];
-
-                            oldCardXmls[i].XPathSelectElement($@"//unit[id='{cardId}']")?.Remove();
+                            string cardName = newXml.XPathSelectElement("name")?.Value.ToString();
 
                             //add the new node
-                            oldCardXmls[i].XPathSelectElement("//root").Add(newXml);
+                            oldCardXmls[i].XPathSelectElement($@"//unit[id='{cardId}']")?.ReplaceWith(newXml);
+
+                            // Write to new file in the folder.
+                            File.WriteAllText($"{outputDirectory}//{cardName}.xml", newXml.ToString());
                         }
                     }
 
