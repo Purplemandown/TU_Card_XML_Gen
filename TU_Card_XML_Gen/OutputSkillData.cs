@@ -9,17 +9,17 @@ namespace TU_Card_XML_Gen
     internal class OutputSkillData
     {
         public string skillId;
-        public int[] x;
-        public int[] y;
-        public int[] all;
-        public int[] c;
-        public string[] s;
-        public string[] s2;
-        public int[] n;
-        public string[] trigger;
-        public bool[] skipThisLevel;
+        public int? x;
+        public int? y;
+        public int? all;
+        public int? c;
+        public string? s;
+        public string? s2;
+        public int? n;
+        public string? trigger;
+        public int? card_id;
 
-        public OutputSkillData(string skillId, int[] x, int[] y, int[] all, int[] c, string[] s, string[] s2, int[] n, string[] trigger, bool[] skipThisLevel)
+        public OutputSkillData(string skillId, int? x, int? y, int? all, int? c, string? s, string? s2, int? n, string? trigger, int? card_id)
         {
             this.skillId = skillId;
             this.x = x;
@@ -30,7 +30,7 @@ namespace TU_Card_XML_Gen
             this.s2 = s2;
             this.n = n;
             this.trigger = trigger;
-            this.skipThisLevel = skipThisLevel;
+            this.card_id = card_id;
         }
     }
 }

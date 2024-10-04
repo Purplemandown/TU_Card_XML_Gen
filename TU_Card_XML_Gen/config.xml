@@ -2,4 +2,23 @@
 <root>
 	<PathToCardXMLs>C:\Users\purpl\OneDrive\Documents\TU_Test</PathToCardXMLs>
 	<PathToUpdateFile>C:\Users\purpl\OneDrive\Documents\TU_Test\updatefile.txt</PathToUpdateFile>
+	<AutoStats>
+		<!-- 
+		WHAT THESE MEAN:
+		
+		When you provide the generator with stats, it gives it the stats for the max level of the highest tier (which you entered)
+		PercentAcrossTier is "how much, as a linear percent, should the stats drop off between max level of the tier and level 1".
+		PercentBetweenTiers is to give a big, splashy reason to fuse cards.  Basically, it enforces a gap between level 1 of a tier and max level of the prior tier.
+		So, as an example, using the default values of 15 and 5:
+		
+		Tier 3 Level 6 has 100% of stats
+		Tier 3 Level 1 has 85% of stats
+		Tier 2 Level 6 has 80% of stats
+		Tier 2 Level 1 has 65% of stats
+		Tier 1 Level 6 has 60% of stats
+		Tier 1 Level 1 has 45% of stats.
+		-->
+		<PercentAcrossTier>15</PercentAcrossTier>
+		<PercentBetweenTiers>5</PercentBetweenTiers>
+	</AutoStats>
 </root>

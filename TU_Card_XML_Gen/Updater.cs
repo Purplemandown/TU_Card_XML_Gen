@@ -1,5 +1,4 @@
-﻿using System.Text;
-using System.Xml.Linq;
+﻿using System.Xml.Linq;
 using System.Xml.XPath;
 using TU_Card_XML_Gen;
 
@@ -9,6 +8,8 @@ namespace TUComparatorLibrary
     {
         public static List<XElement> skillData;
         public static List<XElement> factionData;
+        public static List<XElement> fusionData;
+        internal static List<Card> oldCardObjects = new List<Card>();
 
         private static List<string> keywordOrder = new List<string>()
         {
@@ -80,7 +81,7 @@ namespace TUComparatorLibrary
         private static Dictionary<string, string> standardizationDictionary = new Dictionary<string, string>()
         {
             { " xn", " Xeno" },
-            { " imp", " Imperial" },
+            { " imp ", " Imperial " },
             { " rd", " Raider" },
             { " bt", " Bloodthirsty" },
             { " rt", " Righteous" },
@@ -100,10 +101,19 @@ namespace TUComparatorLibrary
             { " zerk", " berserk" }
         };
 
+        private static List<string> wordsToIgnoreStandardization = new List<string>()
+        {
+            "imperial"
+        };
+
         private string outputDirectory = $"output-{DateTime.Now.ToString("yyyy-MM-dd-hh-mm-ss")}";
 
-        public void Run(string oldXmlDirectory, string updateFilePath)
+        private ConfigStore config;
+
+        public void Run(string oldXmlDirectory, string updateFilePath, ConfigStore config)
         {
+            this.config = config;
+
             //Create the folder for the run.
             Directory.CreateDirectory(outputDirectory);
 
@@ -111,6 +121,11 @@ namespace TUComparatorLibrary
             XDocument skillDataDoc = XDocument.Parse(skillData);
             Updater.skillData = skillDataDoc.XPathSelectElements("//root/skillType").ToList();
             Updater.factionData = skillDataDoc.XPathSelectElements("//root/unitType").ToList();
+
+            // get the fusion data, to replace how we're loading cards to change.
+            string fusionData = File.ReadAllText($@"{oldXmlDirectory}//fusion_recipes_cj2.xml");
+            XDocument fusionDataDoc = XDocument.Parse(fusionData);
+            Updater.fusionData = fusionDataDoc.XPathSelectElements("//root/fusion_recipe").ToList();
 
             List<string> cardsFailedToUpdate = new List<string>();
             int cardsUpdated = 0;
@@ -146,7 +161,7 @@ namespace TUComparatorLibrary
 
             Console.WriteLine("Parsing old XMLs into card XMLs.");
 
-            List<Card> oldCardObjects = new List<Card>();
+            oldCardObjects = new List<Card>();
 
             for (int i = 0; i < oldCardXmls.Count(); i++)
             {
@@ -182,28 +197,26 @@ namespace TUComparatorLibrary
                 {
                     Console.WriteLine($"Updating {updateCardLines[0]}");
 
-                    // ASSUMPTION: Card names will be in fusion order.  First one will be the lowest to update, and contain the level 1 to scale from.
-                    string[] cardNames = updateCardLines[0].Split("|");
+                    // New way - use the name given to look up the ID.  Use the ID to see if it has any children.  Recurse through that until we're out of cards to load.
 
                     // find the card objects.
                     List<Card> cardsToUpdate = new List<Card>();
                     bool cardFindError = false;
 
-                    foreach (string cardName in cardNames)
+                    string cardName = updateCardLines[0];
+
+                    Card cardToUpdateRequest = oldCardObjects.Where(x => x.name.Equals(cardName)).FirstOrDefault();
+
+                    try
                     {
-                        Card cardToUpdate = oldCardObjects.Where(x => x.name.Equals(cardName)).FirstOrDefault();
+                        cardsToUpdate = FindCardsToUpdateRecursive(cardToUpdateRequest);
 
-                        if (cardToUpdate != null)
-                        {
-                            cardsToUpdate.Add(cardToUpdate);
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Can't find a card with name {cardName}.  Check your spelling.");
-                            cardsFailedToUpdate.Add(updateCardLines[0]);
-                            cardFindError = true;
-                        }
-
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Can't find a card with name {cardName}, or one of it's children.  Check your spelling.  Exception:");
+                        Console.WriteLine(ex.ToString());
+                        cardFindError = true;
                     }
 
                     if (cardFindError)
@@ -249,45 +262,34 @@ namespace TUComparatorLibrary
                         continue;
                     }
 
+                    // START REWRITE
 
-                    // get the level 1 stats from the card for scaling
-                    int baseAttack = cardsToUpdate[0].upgradeLevels[1].attack;
-                    int baseHealth = cardsToUpdate[0].upgradeLevels[1].health;
-
-                    // level 1 stays the same, level 6 is the new value.  Scale the other 4 values.
-                    // The arrays are now more complicated.  We need 6 levels for each card we're updating.
-                    int[] levelAttacks = new int[cardsToUpdate.Count * 6];
-                    int[] levelHealths = new int[cardsToUpdate.Count * 6];
-
-                    for (int i = 0; i < levelAttacks.Length; i++)
+                    for (int i = 0; i < cardXMLsToUpdate.Count; i++)
                     {
-                        // scaling factor is (i as % of length - 1)
-                        double scalingFactor = (double)i / (levelAttacks.Length - 1);
+                        // get the card (can't foreach because we need to key on the index)
+                        XElement cardXmlToUpdate = cardXMLsToUpdate[i];
 
-                        levelAttacks[i] = (int)Math.Floor(baseAttack + (scalingFactor * (attack - baseAttack)));
-                        levelHealths[i] = (int)Math.Floor(baseHealth + (scalingFactor * (health - baseHealth)));
-                    }
+                        // build the scaling factor
+                        int tiersBelowMax = (cardXMLsToUpdate.Count - 1) - i;
+                        double tierScaling = ((tiersBelowMax * config.AutoStats.PercentBetweenTiers) + (tiersBelowMax * config.AutoStats.PercentAcrossTier)) * 0.01;
 
-                    List<OutputSkillData> outputSkills = new List<OutputSkillData>();
+                        // summons need different tier scaling
+                        double summonTierScaling = ((double)i / cardXMLsToUpdate.Count);
 
-                    //For skills, it's not so simple.
-                    for (int i = 3; i < updateCardLines.Length; i++)
-                    {
-                        // the last X lines are skills.  Back-convert to the skill ID
-                        // Base them off of the last card.
-                        outputSkills.Add(ProcessSingleSkill(cardsToUpdate, StandardizeInputString(updateCardLines[i])));
-                    }
-
-                    int outputSkillIndex = 0;
-
-                    foreach (XElement cardXmlToUpdate in cardXMLsToUpdate)
-                    {
-                        // we have the attacks, healths, and skills.  Time to modify some XML.
-                        // level 1 stays the same.  For everything else, it's time to build some upgrade nodes.
+                        // get the upgrades
                         List<XElement> upgrades = cardXmlToUpdate.XPathSelectElements("upgrade").ToList();
-
                         cardXmlToUpdate.XPathSelectElements("upgrade").Remove();
 
+                        // build the level scaling factor
+                        int levelsBelowMax = (upgrades.Count);  // Don't need a -1, as there's one extra that's at the card level that cancels out the off-by-one
+                        double levelScaling = (levelsBelowMax * config.AutoStats.PercentAcrossTier * 0.01) / upgrades.Count;
+
+                        double summonLevelScaling = ((double)1 / cardXMLsToUpdate.Count) * (1 - ((double)levelsBelowMax / upgrades.Count));
+
+                        double scalingFactor = (1 - (tierScaling + levelScaling));
+                        double summonScalingFactor = summonLevelScaling + summonTierScaling;
+
+                        // Level 1 is on the card
                         // remove the delay node, and add it if needed.
                         if (cardXmlToUpdate.XPathSelectElement("cost") != null)
                         {
@@ -296,92 +298,83 @@ namespace TUComparatorLibrary
                             cardXmlToUpdate.Add(new XElement("cost", delay));
                         }
 
-                        XElement workingCardXmlToUpdate;
+                        // Base card healths and attacks
+                        cardXmlToUpdate.XPathSelectElement("health")?.Remove();
 
-                        // TODO: we have to handle level 1, now that it can change.
-                        // Still don't want to change the first card
-                        if(outputSkillIndex > 0)
+                        cardXmlToUpdate.Add(new XElement("health", Convert.ToInt32(Math.Floor(scalingFactor * health))));
+
+                        // remove the attack node, and replace it if needed.
+                        if (cardXmlToUpdate.XPathSelectElement("attack") != null)
                         {
+                            cardXmlToUpdate.XPathSelectElement("attack")?.Remove();
+
+                            cardXmlToUpdate.Add(new XElement("attack", Convert.ToInt32(Math.Floor(scalingFactor * attack))));
+                        }
+
+                        List<XElement> outputSkills = new List<XElement>();
+
+                        //For skills, it's not so simple.
+                        for (int j = 3; j < updateCardLines.Length; j++)
+                        {
+                            // the last X lines are skills.  Back-convert to the skill ID
+                            // Base them off of the last card.
+                            outputSkills.Add(BuildSingleSkillXml(StandardizeInputString(updateCardLines[j]), scalingFactor, summonScalingFactor));
+                        }
+
+                        cardXmlToUpdate.XPathSelectElements("skill").Remove();
+
+                        cardXmlToUpdate.Add(outputSkills.ToArray());
+
+                        // Levels 2+ are in the upgrades.
+
+                        for (int k = 0; k < upgrades.Count; k++)
+                        {
+                            XElement upgrade = upgrades[k];
+
+                            // build the level scaling factor
+                            levelsBelowMax = (upgrades.Count - (k + 1));  // Don't need a -1, as there's one extra that's at the card level that cancels out the off-by-one
+                            levelScaling = (levelsBelowMax * config.AutoStats.PercentAcrossTier * 0.01) / upgrades.Count;
+
+                            summonLevelScaling = ((double)1 / cardXMLsToUpdate.Count) * (1 - ((double)levelsBelowMax / upgrades.Count));
+
+                            scalingFactor = (1 - (tierScaling + levelScaling));
+                            summonScalingFactor = summonLevelScaling + summonTierScaling;
+
+
                             // Base card healths and attacks
-                            cardXmlToUpdate.XPathSelectElement("health")?.Remove();
-
-                            cardXmlToUpdate.Add(new XElement("health", levelHealths[outputSkillIndex]));
-
-                            // remove the attack node, and replace it if needed.
-                            if (cardXmlToUpdate.XPathSelectElement("attack") != null)
-                            {
-                                cardXmlToUpdate.XPathSelectElement("attack")?.Remove();
-
-                                cardXmlToUpdate.Add(new XElement("attack", levelAttacks[outputSkillIndex]));
-                            }
-
-
-                            // remove the existing skills, preserving any summons.  Build a new XElement.
-                            List<XElement> summons = cardXmlToUpdate.XPathSelectElements("skill[@id='summon']").ToList();
-                            // also preserve any non-summons, in case the skill is marked "do not change"
-                            List<XElement> nonsummons = cardXmlToUpdate.XPathSelectElements("skill[@id!='summon']").ToList();
-
-                            // this method is absolutely chok-full of side-effects anyways.  Do I even need the output?
-                            workingCardXmlToUpdate = ProcessCardSkills(cardXmlToUpdate, summons, nonsummons, outputSkills, updateCardLines, outputSkillIndex);
-                        }
-                        else
-                        {
-                            workingCardXmlToUpdate = cardXmlToUpdate;
-                        }
-
-
-                        // after handling level 1:
-                        outputSkillIndex++;
-
-                        // Most skills work fine.  Summon is fucked.
-                        // for skills, if one is specified, they all must be.  We generate all skills except summon by default.
-                        // to prepare for filling in missing summons, get the level 1 summons, if present, then set how many summons we expect on the card.
-                        // if any future level finds fewer summons than this, use the last level's summons instead.
-
-                        List<XElement> baseSummons = workingCardXmlToUpdate.XPathSelectElements("skill[@id='summon']").ToList();
-                        List<XElement> lastLevelSummons = baseSummons;
-
-                        foreach (XElement upgrade in upgrades)
-                        {
-                            // get the level
-                            int level = int.Parse(upgrade.XPathSelectElement("level").Value);
-
-                            // remove the health node, and replace it if needed.
                             upgrade.XPathSelectElement("health")?.Remove();
 
-                            upgrade.Add(new XElement("health", levelHealths[outputSkillIndex]));
+                            upgrade.Add(new XElement("health", Convert.ToInt32(Math.Floor(scalingFactor * health))));
 
                             // remove the attack node, and replace it if needed.
-                            if (workingCardXmlToUpdate.XPathSelectElement("attack") != null)
+                            if (upgrade.XPathSelectElement("attack") != null)
                             {
                                 upgrade.XPathSelectElement("attack")?.Remove();
 
-                                upgrade.Add(new XElement("attack", levelAttacks[outputSkillIndex]));
+                                upgrade.Add(new XElement("attack", Convert.ToInt32(Math.Floor(scalingFactor * attack))));
                             }
 
-                            // remove the existing skills, preserving any summons.  Build a new XElement.
-                            List<XElement> summons = upgrade.XPathSelectElements("skill[@id='summon']").ToList();
-                            // also preserve any non-summons, in case the skill is marked "do not change"
-                            List<XElement> nonsummons = upgrade.XPathSelectElements("skill[@id!='summon']").ToList();
+                            List<XElement> upgradeOutputSkills = new List<XElement>();
 
-                            // use last level's summons if there are none here.  If there are some here, set this as the last level's summons to check on the next level.
-                            if (summons.Count >= baseSummons.Count)
+                            //For skills, it's not so simple.
+                            for (int l = 3; l < updateCardLines.Length; l++)
                             {
-                                lastLevelSummons = summons;
-                            }
-                            else
-                            {
-                                summons = lastLevelSummons;
+                                // the last X lines are skills.  Back-convert to the skill ID
+                                // Base them off of the last card.
+                                upgradeOutputSkills.Add(BuildSingleSkillXml(StandardizeInputString(updateCardLines[l]), scalingFactor, summonScalingFactor));
                             }
 
-                            // Do the skills (now a method, because we need it elsewhere as well)
-                            workingCardXmlToUpdate.Add(ProcessCardSkills(upgrade, summons, nonsummons, outputSkills, updateCardLines, outputSkillIndex));
+                            upgrade.XPathSelectElements("skill").Remove();
 
-                            outputSkillIndex++;
+                            upgrade.Add(upgradeOutputSkills.ToArray());
+
+                            cardXmlToUpdate.Add(upgrade);
                         }
 
-                        newXmls.Add(int.Parse(workingCardXmlToUpdate.XPathSelectElement("id").Value), workingCardXmlToUpdate);
+                        newXmls.Add(int.Parse(cardXmlToUpdate.XPathSelectElement("id").Value), cardXmlToUpdate);
                     }
+
+                    // END REWRITE
 
                     // Add the file for card ID to the end?
                     foreach (Card cardToUpdate in cardsToUpdate)
@@ -393,6 +386,7 @@ namespace TUComparatorLibrary
                 catch (Exception ex)
                 {
                     Console.WriteLine(ex.Message);
+                    Console.WriteLine(ex.StackTrace);
                     //Console.WriteLine(ex.StackTrace);
                     cardsFailedToUpdate.Add(updateCardLines[0]);
                 }
@@ -450,58 +444,94 @@ namespace TUComparatorLibrary
             }
         }
 
-        private static XElement BuildSingleSkillXml(int level, OutputSkillData outputSkillData)
+        private List<Card> FindCardsToUpdateRecursive(Card card)
         {
-            if (outputSkillData.skillId != "summon")
+            // find the card objects.
+            List<Card> cardsToUpdate = new List<Card>();
+
+            if (card != null)
             {
-                XElement newSkillXml = new XElement("skill");
+                // basic XPath search to find the recipies that can create this card
+                List<XElement> relevantRecipies = fusionData.Where(x => x.XPathSelectElement("card_id").Value.Equals(card.id.ToString())).ToList();
 
-                newSkillXml.SetAttributeValue("id", outputSkillData.skillId);
-
-                if (outputSkillData.x != null)
+                if (relevantRecipies.Count > 0)
                 {
-                    newSkillXml.SetAttributeValue("x", outputSkillData.x[level]);
+                    // Do any of the ones have only a double of one other card?
+                    foreach (XElement recipe in relevantRecipies)
+                    {
+                        List<XElement> resources = recipe.XPathSelectElements("resource").ToList();
+
+                        if (resources.Count == 1 && resources.First().Attributes("number")?.FirstOrDefault()?.Value == "2")
+                        {
+                            Card cardToUpdate = oldCardObjects.Where(x => x.id.Equals(int.Parse(resources.First().Attributes("card_id").First().Value)) || x.upgradeLevels.Values.Where(y => y.id.Equals(int.Parse(resources.First().Attributes("card_id").First().Value))).ToList().Count >= 1).FirstOrDefault();
+
+                            cardsToUpdate = FindCardsToUpdateRecursive(cardToUpdate);
+                        }
+                    }
                 }
 
-                if (outputSkillData.y != null)
-                {
-                    newSkillXml.SetAttributeValue("y", outputSkillData.y[level]);
-                }
-
-                if (outputSkillData.all != null)
-                {
-                    newSkillXml.SetAttributeValue("all", outputSkillData.all[level]);
-                }
-
-                if (outputSkillData.c != null)
-                {
-                    newSkillXml.SetAttributeValue("c", outputSkillData.c[level]);
-                }
-
-                if (outputSkillData.s != null)
-                {
-                    newSkillXml.SetAttributeValue("s", outputSkillData.s[level]);
-                }
-
-                if (outputSkillData.s2 != null)
-                {
-                    newSkillXml.SetAttributeValue("s2", outputSkillData.s2[level]);
-                }
-
-                if (outputSkillData.n != null)
-                {
-                    newSkillXml.SetAttributeValue("n", outputSkillData.n[level]);
-                }
-
-                if (outputSkillData.trigger != null)
-                {
-                    newSkillXml.SetAttributeValue("trigger", outputSkillData.trigger[level]);
-                }
-
-                return newSkillXml;
+                Console.WriteLine($"Found child card {card.name}");
+                cardsToUpdate.Add(card);
             }
 
-            return null;
+            return cardsToUpdate;
+        }
+
+        private static XElement BuildSingleSkillXml(string skillString, double scalingFactor, double summonScalingFactor)
+        {
+            // get the card data to build
+            OutputSkillData skillData = ProcessSingleSkill(skillString, scalingFactor, summonScalingFactor);
+
+            XElement newSkillXml = new XElement("skill");
+
+            newSkillXml.SetAttributeValue("id", skillData.skillId);
+
+            if (skillData.x != null)
+            {
+                newSkillXml.SetAttributeValue("x", skillData.x);
+            }
+
+            if (skillData.y != null)
+            {
+                newSkillXml.SetAttributeValue("y", skillData.y);
+            }
+
+            if (skillData.all != null)
+            {
+                newSkillXml.SetAttributeValue("all", skillData.all);
+            }
+
+            if (skillData.c != null)
+            {
+                newSkillXml.SetAttributeValue("c", skillData.c);
+            }
+
+            if (skillData.s != null)
+            {
+                newSkillXml.SetAttributeValue("s", skillData.s);
+            }
+
+            if (skillData.s2 != null)
+            {
+                newSkillXml.SetAttributeValue("s2", skillData.s2);
+            }
+
+            if (skillData.n != null)
+            {
+                newSkillXml.SetAttributeValue("n", skillData.n);
+            }
+
+            if (skillData.card_id != null)
+            {
+                newSkillXml.SetAttributeValue("card_id", skillData.card_id);
+            }
+
+            if (skillData.trigger != null)
+            {
+                newSkillXml.SetAttributeValue("trigger", skillData.trigger);
+            }
+
+            return newSkillXml;
         }
 
         private static string StandardizeInputString(string inputString)
@@ -529,173 +559,8 @@ namespace TUComparatorLibrary
             return workingString;
         }
 
-        private static XElement ProcessCardSkills(XElement rootElement, List<XElement> summons, List<XElement> nonsummons, List<OutputSkillData> outputSkills, string[] updateCardLines, int outputSkillIndex)
-        {
-            rootElement.XPathSelectElements("skill")?.Remove();
 
-            foreach (string skillOrder in skillKeywordOrder)
-            {
-                if (keywordOrder.Contains(skillOrder))
-                {
-                    // do the trigger skills.
-                    // still need to keep the same order.  We're O(n^2) now, folks.
-                    foreach (string innerSkillOrder in skillKeywordOrder)
-                    {
-                        // skip the keywords this time, we're just trying to figure out the order of the non-keyworded skills
-                        if (!keywordOrder.Contains(innerSkillOrder))
-                        {
-                            if (innerSkillOrder.Equals("summon", StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                // copy over the summons with the correct trigger type
-                                foreach (XElement summon in summons)
-                                {
-                                    if (summon.Attribute("trigger") != null && summon.Attribute("trigger").Value.Equals(skillOrder, StringComparison.InvariantCultureIgnoreCase))
-                                    {
-                                        rootElement.Add(summon);
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                foreach (OutputSkillData outputSkillData in outputSkills)
-                                {
-                                    if (outputSkillData == null)
-                                    {
-                                        throw new NullReferenceException($"{updateCardLines[0]} - null skill data.  Check your input skills.");
-                                    }
-
-                                    //check for triggers
-                                    if (outputSkillData.trigger != null && outputSkillData.trigger.Length > 0 && outputSkillData.trigger[outputSkillData.trigger.Length - 1].Equals(skillOrder, StringComparison.InvariantCultureIgnoreCase))
-                                    {
-                                        // the trigger matches.  Does the skill?
-                                        if (outputSkillData.skillId.Equals(innerSkillOrder, StringComparison.InvariantCultureIgnoreCase))
-                                        {
-                                            List<XElement> preserved = nonsummons.Where(x => x.Attribute("id").Value.Equals(innerSkillOrder) && !string.IsNullOrEmpty(x.Attribute("trigger")?.Value) && x.Attribute("trigger").Value.Equals(skillOrder, StringComparison.InvariantCultureIgnoreCase)).ToList();
-                                            // is this level one to skip?
-                                            if (outputSkillData.skipThisLevel[outputSkillIndex])
-                                            {
-                                                if (preserved.Count == 1)
-                                                {
-                                                    rootElement.Add(preserved[0]);
-                                                }
-                                                else if (preserved.Count > 1)
-                                                {
-                                                    throw new ArgumentException($"Skill {innerSkillOrder} with trigger {skillOrder} on card was not supposed to be updated at overall level {outputSkillIndex}, but there were 2 old matching skills.  Code is confused.  Skipping card, check your inputs.");
-                                                }
-                                            }
-                                            else
-                                            {
-                                                // both match.  Add the skill
-                                                rootElement.Add(BuildSingleSkillXml(outputSkillIndex, outputSkillData));
-                                            }
-
-                                            if (preserved.Count > 0)
-                                            {
-                                                nonsummons.Remove(preserved[0]);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                //preserve skills for which there is no matching output data.
-                                List<XElement> preservedNotPresent = nonsummons.Where(x => (x.Attribute("id")?.Value ?? "").Equals(innerSkillOrder) && (x.Attribute("trigger")?.Value ?? "").Equals(skillOrder)).ToList();
-                                foreach (XElement preserved in preservedNotPresent)
-                                {
-                                    if (outputSkills.Where(x => x.skillId.Equals(preserved.Attribute("id")?.Value) && x.trigger.Equals(preserved.Attribute("trigger")?.Value)).FirstOrDefault() == null)
-                                    {
-                                        // There is no match, preserve it.
-
-                                        rootElement.Add(preserved);
-
-                                        nonsummons.Remove(preserved);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    if (skillOrder.Equals("summon", StringComparison.InvariantCultureIgnoreCase))
-                    {
-                        // copy over the non-triggered summons from the preserved summon XMLs
-                        foreach (XElement summon in summons)
-                        {
-                            if (summon.Attribute("trigger") == null)
-                            {
-                                rootElement.Add(summon);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // non-trigger skills, in order.
-                        foreach (OutputSkillData outputSkillData in outputSkills)
-                        {
-                            if (outputSkillData == null)
-                            {
-                                Console.WriteLine($"{updateCardLines[0]} - null skill data.  Check your input skills.");
-                                throw new NullReferenceException($"{updateCardLines[0]} - null skill data.  Check your input skills.");
-                            }
-
-                            if (outputSkillData.trigger == null || outputSkillData.trigger.Length == 0)
-                            {
-                                // not a summon or trigger skill
-                                if (outputSkillData.skillId.Equals(skillOrder, StringComparison.InvariantCultureIgnoreCase))
-                                {
-                                    List<XElement> preserved = nonsummons.Where(x => x.Attribute("id").Value.Equals(skillOrder) && String.IsNullOrEmpty(x.Attribute("trigger")?.Value)).ToList();
-                                    // is this level one to skip?
-                                    if (outputSkillData.skipThisLevel[outputSkillIndex])
-                                    {
-                                        if (preserved.Count == 1)
-                                        {
-                                            rootElement.Add(preserved[0]);
-                                        }
-                                        else if (preserved.Count > 1)
-                                        {
-                                            throw new ArgumentException($"Skill {skillOrder} on card was not supposed to be updated at overall level {outputSkillIndex}, but there were 2 old matching skills.  Code is confused.  Skipping card, check your inputs.");
-                                        }
-
-                                        if (preserved.Count > 0)
-                                        {
-                                            nonsummons.Remove(preserved[0]);
-                                        }
-                                    }
-                                    else
-                                    {
-                                        // matches - copy it over
-                                        rootElement.Add(BuildSingleSkillXml(outputSkillIndex, outputSkillData));
-                                    }
-                                }
-                            }
-                        }
-
-                        //preserve skills for which there is no matching output data.
-                        List<XElement> preservedNotPresent = nonsummons.Where(x => (x.Attribute("id")?.Value ?? "").Equals(skillOrder) && String.IsNullOrEmpty(x.Attribute("trigger")?.Value)).ToList();
-                        foreach(XElement preserved in preservedNotPresent)
-                        {
-                            if(outputSkills.Where(x => x.skillId.Equals(preserved.Attribute("id")?.Value) && x.trigger == null).FirstOrDefault() == null){
-                                // There is no match, preserve it.
-
-                                rootElement.Add(preserved);
-
-                                nonsummons.Remove(preserved);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // If the root element ended up with 4 or more skills somehow, throw an error.
-            if (rootElement.XPathSelectElements("skill").Count() > 3)
-            {
-                throw new ArgumentException($"Card ended up with four skill lines.  This can happen if a card's skill was changed.  If changing a card's skill, the base XML must be changed first such that the system knows where the new skill starts.");
-            }
-
-            return rootElement;
-        }
-
-        private static OutputSkillData ProcessSingleSkill(List<Card> cardsToUpdate, string fullSkillString)
+        private static OutputSkillData ProcessSingleSkill(string fullSkillString, double scalingFactor, double summonScalingFactor)
         {
             string[] skillString = fullSkillString.Split(' ');
 
@@ -703,25 +568,18 @@ namespace TUComparatorLibrary
 
             List<string> factionList = new List<string>() { "Imperial", "Raider", "Bloodthirsty", "Xeno", "Righteous", "Progenitor" };
 
-            // figure out what properties we're expecting.
-            int[] x = null;
-            int[] y = null;
-            int[] all = null;
-            int[] c = null;
-            string[] s = null;
-            string[] s2 = null;
-            int[] n = null;
-            string[] trigger = null;
-            bool[] skipThisLevel = null;
+            int? newValue = null;
+            int? newFaction = null;
+            int? newAll = null;
+            int? newCooldown = null;
+            string? newSkill = null;
+            string? newSkill2 = null;
+            int? newNumber = null;
+            Card summonCard = null;
+            string? newTrigger = null;
 
-            int newValue = -1;
-            int newFaction = -1;
-            int newAll = -1;
-            int newCooldown = -1;
-            string newSkill = string.Empty;
-            string newSkill2 = string.Empty;
-            int newNumber = -1;
-            string newTrigger = string.Empty;
+            int? scaledValue = null;
+            int? scaledNumber = null;
 
             int factionMod = 0;
 
@@ -808,15 +666,15 @@ namespace TUComparatorLibrary
 
                     factionMod = 0;
 
-                    if (factionList.Contains(skillString[1 + newAll]))
+                    if (factionList.Contains(skillString[1 + newAll.Value]))
                     {
-                        XElement faction = Updater.factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[1 + newAll])).FirstOrDefault();
+                        XElement faction = Updater.factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[1 + newAll.Value])).FirstOrDefault();
                         newFaction = int.Parse(faction.XPathSelectElement("id").Value);
 
                         factionMod = 1;
                     }
 
-                    newValue = int.Parse(skillString[1 + newAll + factionMod]);
+                    newValue = int.Parse(skillString[1 + newAll.Value + factionMod]);
 
                     break;
                 // three params (all, cooldown, number)
@@ -1002,7 +860,21 @@ namespace TUComparatorLibrary
                     break;
                 // summon sucks
                 case "summon":
-                    //nope
+                    //Hoo boy.  Here we go.
+                    // The first segment will be the Summon keyword.  The last, if it's a trigger, is by necessity, the trigger, and is removed earlier.
+                    // So, to get the card name of the summon, we can concatinate everything else?
+                    string[] nameSections = skillString.Skip(1).Take(skillString.Length - 1).ToArray();
+                    string summonCardName = string.Join(" ", nameSections);
+
+                    summonCard = oldCardObjects.Where(x => x.name.Equals(summonCardName, StringComparison.InvariantCultureIgnoreCase)).FirstOrDefault();
+
+                    if (summonCard == null)
+                    {
+                        Console.WriteLine($"Can't find summon card \"{summonCardName}\"");
+                        throw new Exception($"Can't find summon card \"{summonCardName}\"");
+                    }
+                    // With the summon card retrieved, we'll worry about scaling it below.
+
                     break;
                 // everything else just has one param, value
                 default:
@@ -1011,245 +883,40 @@ namespace TUComparatorLibrary
                     break;
             }
 
-            // Does the new skill match the last level of the last card's existing skills?
-            // TODO: Are we matching tags?
-            // YES, we are matching tags, and we can use the parsed tags to check!
-            bool skillIsOnLastLevel = cardsToUpdate[cardsToUpdate.Count - 1].upgradeLevels[cardsToUpdate[cardsToUpdate.Count - 1].upgradeLevels.Count - 1].skillList
-                .Where(x => x.id.Equals(skillId, StringComparison.InvariantCultureIgnoreCase)
-                    && x.faction.Equals(newFaction)
-                    && x.trigger.Equals(newTrigger)
-                    && x.all.Equals(newAll == 1) // all is a boolean, but newAll is an int
-                ).Any();
-
-            // What is the earliest level on which card does the skill match?
-            int earliestLevelSkillExists = -1;
-
-            int totalLevelsCounted = 0;
-
-            for (int i = 0; i < cardsToUpdate.Count; i++)
+            // scale the values.
+            if (newValue != null)
             {
-                Card currentCard = cardsToUpdate[i];
+                scaledValue = Convert.ToInt32(Math.Floor(newValue.Value * scalingFactor));
+            }
 
-                for (int j = 1; j < currentCard.upgradeLevels.Count + 1; j++)
+            if (newNumber != null)
+            {
+                scaledNumber = Convert.ToInt32(Math.Floor(newNumber.Value * scalingFactor));
+            }
+
+            int? cardId = null;
+
+            // scale the summon card ID
+            if (summonCard != null)
+            {
+                int levelCount = summonCard.upgradeLevels.Count; // include the base card
+
+                int scaledLevelCount = Convert.ToInt32(Math.Floor((levelCount - 1) * summonScalingFactor)) + 1;
+
+                if (scaledLevelCount == 1)
                 {
-                    UpgradeLevel currentLevel = currentCard.upgradeLevels[j];
-
-                    // TODO: Are we matching tags?
-                    // YES, we are matching tags, and we can use the parsed tags to check!
-                    if (currentLevel.skillList
-                        .Where(x => x.id.Equals(skillId, StringComparison.InvariantCultureIgnoreCase)
-                            && x.faction.Equals(newFaction)
-                            && x.trigger.Equals(newTrigger)
-                            && x.all.Equals(newAll == 1) // all is a boolean, but newAll is an int
-                        ).Any())
-                    {
-
-                        if (earliestLevelSkillExists == -1)
-                        {
-                            earliestLevelSkillExists = totalLevelsCounted;
-
-                        }
-
-                    }
-
-                    totalLevelsCounted++;
+                    // base card ID
+                    cardId = summonCard.id;
+                }
+                else
+                {
+                    // upgrade level
+                    cardId = summonCard.upgradeLevels[scaledLevelCount].id; // watch this - I think I indexed by level but am not sure.
                 }
             }
 
-            // Figure out how long we're going to have to stretch this value over.
-            int endingArrayMaxLength = 0;
+            return new OutputSkillData(skillId, scaledValue, newFaction, newAll, newCooldown, newSkill, newSkill2, scaledNumber, newTrigger, cardId);
 
-            foreach (Card currentCard in cardsToUpdate)
-            {
-                foreach (int upgradeLevel in currentCard.upgradeLevels.Keys)
-                {
-                    endingArrayMaxLength++;
-                }
-            }
-
-            double baseScalingFactor = 1.0 / ((endingArrayMaxLength - earliestLevelSkillExists) - 1);
-
-            // We have the end value, as well as the understanding of where we start and whether we can assume an end.  Let's get cooking.
-            if (!skillIsOnLastLevel)
-            {
-                Console.WriteLine($"Skill {skillId} is not on the last level of the existing card.  Can't make an automatic decision as to how to handle this.  Modify level manually first.");
-                throw new ArgumentException($"Skill {skillId} is not on the last level of the existing card.  Can't make an automatic decision as to how to handle this.  Modify level manually first.");
-            }
-            else
-            {
-                // Build a list of all the card skills across all the cards.
-                List<UpgradeLevel> levels = new List<UpgradeLevel>();
-
-                foreach (Card card in cardsToUpdate)
-                {
-                    foreach (int key in card.upgradeLevels.Keys)
-                    {
-                        levels.Add(card.upgradeLevels[key]);
-                    }
-                }
-
-                Skill earliestInstance = levels[earliestLevelSkillExists].skillList.Where(x => x.id.Equals(skillId, StringComparison.InvariantCultureIgnoreCase)).FirstOrDefault();
-
-                // for each of the things we have a final value for, get the starting value and build a chart.
-                if (newValue != -1)
-                {
-                    int j = 0;
-
-                    int oldValue = earliestInstance.value;
-                    x = new int[endingArrayMaxLength];
-                    for (int i = 0; i < x.Length; i++)
-                    {
-                        if (i >= earliestLevelSkillExists)
-                        {
-                            x[i] = (int)Math.Floor(oldValue + (j * baseScalingFactor * (newValue - oldValue)));
-                            j++;
-                        }
-                        else
-                        {
-                            x[i] = -1;
-                        }
-                    }
-                }
-
-                if (newFaction != -1)
-                {
-                    y = new int[endingArrayMaxLength];
-                    for (int i = 0; i < y.Length; i++)
-                    {
-                        if (i >= earliestLevelSkillExists)
-                        {
-                            y[i] = newFaction;
-                        }
-                        else
-                        {
-                            y[i] = -1;
-                        }
-                    }
-                }
-
-                if (newAll != -1)
-                {
-                    all = new int[endingArrayMaxLength];
-                    for (int i = 0; i < all.Length; i++)
-                    {
-                        if (i >= earliestLevelSkillExists)
-                        {
-                            all[i] = newAll;
-                        }
-                        else
-                        {
-                            all[i] = -1;
-                        }
-                    }
-                }
-
-                if (newCooldown != -1)
-                {
-                    int j = 0;
-
-                    int oldCooldown = earliestInstance.cooldown;
-                    c = new int[endingArrayMaxLength];
-                    for (int i = 0; i < c.Length; i++)
-                    {
-                        if (i >= earliestLevelSkillExists)
-                        {
-                            c[i] = (int)Math.Floor(oldCooldown + (j * baseScalingFactor * (newCooldown - oldCooldown)));
-                            j++;
-                        }
-                        else
-                        {
-                            c[i] = -1;
-                        }
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(newSkill))
-                {
-                    s = new string[endingArrayMaxLength];
-                    for (int i = 0; i < s.Length; i++)
-                    {
-                        if (i >= earliestLevelSkillExists)
-                        {
-                            s[i] = newSkill;
-                        }
-                        else
-                        {
-                            s[i] = string.Empty;
-                        }
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(newSkill2))
-                {
-                    s2 = new string[endingArrayMaxLength];
-                    for (int i = 0; i < s2.Length; i++)
-                    {
-                        if (i >= earliestLevelSkillExists)
-                        {
-                            s2[i] = newSkill2;
-                        }
-                        else
-                        {
-                            s2[i] = string.Empty;
-                        }
-                    }
-                }
-
-                if (newNumber != -1)
-                {
-                    int j = 0;
-
-                    int oldNumber = earliestInstance.number;
-
-                    n = new int[endingArrayMaxLength];
-                    for (int i = 0; i < n.Length; i++)
-                    {
-                        if (i >= earliestLevelSkillExists)
-                        {
-                            n[i] = (int)Math.Floor(oldNumber + (j * baseScalingFactor * (newNumber - oldNumber)));
-                            j++;
-                        }
-                        else
-                        {
-                            n[i] = -1;
-                        }
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(newTrigger))
-                {
-                    trigger = new string[endingArrayMaxLength];
-                    for (int i = 0; i < trigger.Length; i++)
-                    {
-                        if (i >= earliestLevelSkillExists)
-                        {
-                            trigger[i] = newTrigger;
-                        }
-                        else
-                        {
-                            trigger[i] = string.Empty;
-                        }
-                    }
-
-                }
-
-                skipThisLevel = new bool[endingArrayMaxLength];
-                for (int i = 0; i < skipThisLevel.Length; i++)
-                {
-                    if (i >= earliestLevelSkillExists)
-                    {
-                        skipThisLevel[i] = false;
-                    }
-                    else
-                    {
-                        skipThisLevel[i] = true;
-                    }
-                }
-
-                return new OutputSkillData(skillId, x, y, all, c, s, s2, n, trigger, skipThisLevel);
-            }
-
-            return null;
 
         }
     }

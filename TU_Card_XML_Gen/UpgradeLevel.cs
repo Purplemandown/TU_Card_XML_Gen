@@ -10,6 +10,7 @@ namespace TUComparatorLibrary
 {
     internal class UpgradeLevel
     {
+        public int? id;
         public int level;
         public int attack;
         public int health;
@@ -18,6 +19,9 @@ namespace TUComparatorLibrary
         internal UpgradeLevel(XElement cardXml)
         {
             this.level = 1;
+            int idParseRes = -1;
+            int.TryParse(cardXml.Element("card_id")?.Value, out idParseRes);
+            this.id = (idParseRes != -1 ? idParseRes : null);
 
             // yes, this is jank, but it was being uncooperative and this is just a prototype)
             this.attack = int.Parse(cardXml.Element("attack")?.Value ?? "-1");
@@ -37,6 +41,10 @@ namespace TUComparatorLibrary
         internal UpgradeLevel(XElement upgradeLevel, UpgradeLevel baseUpgradeData)
         {
             // for each value, if it is overridden in the upgrade node, use that.  If not, use the value from the previous upgrade level.
+            int idParseRes = -1;
+            int.TryParse(upgradeLevel.Element("card_id")?.Value, out idParseRes);
+            this.id = (idParseRes != -1 ? idParseRes : null);
+
             this.level = int.Parse(upgradeLevel.Element("level")?.Value);
 
             this.attack = !string.IsNullOrEmpty(upgradeLevel.Element("attack")?.Value) ? int.Parse(upgradeLevel.Element("attack")?.Value) : baseUpgradeData.attack;
