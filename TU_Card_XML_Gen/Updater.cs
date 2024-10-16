@@ -347,9 +347,12 @@ namespace TUComparatorLibrary
                             upgrade.Add(new XElement("health", Convert.ToInt32(Math.Floor(scalingFactor * health))));
 
                             // remove the attack node, and replace it if needed.
-                            if (upgrade.XPathSelectElement("attack") != null)
+                            if (attack != -1)
                             {
-                                upgrade.XPathSelectElement("attack")?.Remove();
+                                if (upgrade.XPathSelectElement("attack") != null)
+                                {
+                                    upgrade.XPathSelectElement("attack")?.Remove();
+                                }
 
                                 upgrade.Add(new XElement("attack", Convert.ToInt32(Math.Floor(scalingFactor * attack))));
                             }
