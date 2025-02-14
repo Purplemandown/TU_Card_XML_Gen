@@ -6,6 +6,8 @@ namespace TUComparatorLibrary
 {
     public class Updater
     {
+
+        string version = "1.3.2";
         public static List<XElement> skillData;
         public static List<XElement> factionData;
         public static List<XElement> fusionData;
@@ -89,15 +91,12 @@ namespace TUComparatorLibrary
             { " OnPlay", " play" },
             { " On Play:", " play" },
             { " On Play", " play" },
-            { " OP", " play" },
             { " OnAttacked", " attacked" },
             { " On Attacked:", " attacked" },
             { " On Attacked", " attacked" },
-            { " OA", " attacked" },
             { " OnDeath", " death" },
             { " On Death:", " death" },
             { " On Death", " death" },
-            { " OD", " death" },
             { " zerk", " berserk" }
         };
 
@@ -112,6 +111,8 @@ namespace TUComparatorLibrary
 
         public void Run(string oldXmlDirectory, string updateFilePath, ConfigStore config)
         {
+            Console.WriteLine($"Running TU_Card_XML_Gen version {version}");
+
             this.config = config;
 
             //Create the folder for the run.
@@ -180,7 +181,7 @@ namespace TUComparatorLibrary
 
             // Load the update file.
 
-            string updateFileContents = File.ReadAllText(updateFilePath);
+            string updateFileContents = File.ReadAllText(updateFilePath).Trim();
 
             // split the file into cards to find.
             string[] updateCards = updateFileContents.Split($@"{Environment.NewLine}{Environment.NewLine}");
