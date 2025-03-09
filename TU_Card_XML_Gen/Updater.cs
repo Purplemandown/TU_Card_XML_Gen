@@ -11,7 +11,12 @@ namespace TUComparatorLibrary
         public static List<XElement> skillData;
         public static List<XElement> factionData;
         public static List<XElement> fusionData;
-        internal static List<Card> oldCardObjects = new List<Card>();
+        internal List<XDocument> oldCardXmls = new List<XDocument>();
+        internal List<Card> oldCardObjects = new List<Card>();
+        internal Dictionary<int, XElement> newXmls = new Dictionary<int, XElement>();
+        internal Dictionary<int, int> fileForCardId = new Dictionary<int, int>();
+
+        string oldXmlDirectory;
 
         private static List<string> keywordOrder = new List<string>()
         {
@@ -112,72 +117,132 @@ namespace TUComparatorLibrary
         public void Run(string oldXmlDirectory, string updateFilePath, ConfigStore config)
         {
             Console.WriteLine($"Running TU_Card_XML_Gen version {version}");
+            Console.WriteLine($"Operation: {config.Operation}");
 
-            this.config = config;
+            this.oldXmlDirectory = oldXmlDirectory;
 
-            //Create the folder for the run.
-            Directory.CreateDirectory(outputDirectory);
+            Initialize(config);
 
-            string skillData = File.ReadAllText($@"{oldXmlDirectory}//skills_set.xml");
-            XDocument skillDataDoc = XDocument.Parse(skillData);
-            Updater.skillData = skillDataDoc.XPathSelectElements("//root/skillType").ToList();
-            Updater.factionData = skillDataDoc.XPathSelectElements("//root/unitType").ToList();
+            switch (config.Operation)
+            {
+                case ConfigStore.UpdaterOperation.Standard:
+                    RunStandardUpdate(updateFilePath, config);
+                    break;
+                case ConfigStore.UpdaterOperation.MassNerfPoison:
+                    RunMassNerfPoisonUpdate(config);
+                    break;
+                default:
+                    throw new NotImplementedException("Config indicates an operation that does not exist.  Check your spelling.");
+            }
+        }
 
-            // get the fusion data, to replace how we're loading cards to change.
-            string fusionData = File.ReadAllText($@"{oldXmlDirectory}//fusion_recipes_cj2.xml");
-            XDocument fusionDataDoc = XDocument.Parse(fusionData);
-            Updater.fusionData = fusionDataDoc.XPathSelectElements("//root/fusion_recipe").ToList();
+        private void RunMassNerfPoisonUpdate(ConfigStore config)
+        {
+            string skillUnderTest = "poison";
 
             List<string> cardsFailedToUpdate = new List<string>();
-            int cardsUpdated = 0;
 
-            // load the XML files
-            List<XDocument> oldCardXmls = new List<XDocument>();
+            // loads into oldCardObjects
+            LoadOldCards(oldXmlDirectory);
 
-            Console.WriteLine("Reading old XMLs from file");
+            //modify the card objects to have the values we want.
 
-            // load old XMLs
-            int counter = 1;
-            bool lastLoadFailed = false;
-            do
+            //Find all cards with poison
+            // TODO: This query is a little wonky, verify it.
+            List<Card> cardsWithPoison = oldCardObjects.Where(x => x.upgradeLevels.Last().Value.skillList.Where(y => y.id.Equals(skillUnderTest)).Count() > 0).ToList();
+
+            //find the associated XMLs and update them.
+            List<XElement> cardXMLsToUpdate = new List<XElement>();
+
+            foreach (Card cardToUpdate in cardsWithPoison)
             {
-                //try to load the file at the counter location.  If it exists, keep going.  If it doesn't, then stop
-                string filename = $@"cards_section_{counter}.xml";
+                XElement cardXmlToUpdate = oldCardXmls[cardToUpdate.fileIndex - 1].XPathSelectElement($@"//unit[id='{cardToUpdate.id}']");
+
+                cardXMLsToUpdate.Add(cardXmlToUpdate);
+            }
+
+            Console.WriteLine($@"Found {cardXMLsToUpdate.Count} cards with {skillUnderTest} to update.");
+
+            // TODO: You really need to write a method that takes an XML and a Card and updates the former with values from the latter, but that sounds like more work than I want to do right now.
+            // Still, noting it for when I do the real mass-nerfer
+
+            for (int i = 0; i < cardXMLsToUpdate.Count; i++)
+            {
+                string name = "unknown";
 
                 try
                 {
-                    string file = File.ReadAllText($@"{oldXmlDirectory}//{filename}");
-                    XDocument fileXml = XDocument.Parse(file);
-                    oldCardXmls.Add(fileXml);
-                    counter++;
+                    bool cardWasChanged = false;
+
+                    // get the card (can't foreach because we need to key on the index)
+                    XElement cardXmlToUpdate = cardXMLsToUpdate[i];
+                    name = cardXmlToUpdate.XPathSelectElement("name").Value;
+                    Console.WriteLine($@"Updating {name}...");
+
+                    // for both the base card, and each upgrade level, look for existing poison.
+                    // For each that is found, multiply it by the scaling factor, round up, then set the value, as well as a flag that indicates it was changed.
+                    XElement basePoison = cardXmlToUpdate.XPathSelectElement($@"skill[@id='{skillUnderTest}']");
+                    if (basePoison != null)
+                    {
+                        decimal newValue = decimal.Parse(basePoison.Attribute("x").Value) * config.MassNerfFactor;
+
+                        int roundedValue = (int)Math.Ceiling(newValue);
+
+                        cardXmlToUpdate.XPathSelectElement($@"skill[@id='{skillUnderTest}']").SetAttributeValue("x", roundedValue);
+                        cardWasChanged = true;
+                    }
+
+                    List<XElement> upgrades = cardXmlToUpdate.XPathSelectElements("upgrade").ToList();
+                    cardXmlToUpdate.XPathSelectElements("upgrade").Remove();
+
+                    foreach (XElement upgrade in upgrades)
+                    {
+                        XElement upgradePoison = upgrade.XPathSelectElement($@"skill[@id='{skillUnderTest}']");
+                        if (upgradePoison != null)
+                        {
+                            decimal newValue = decimal.Parse(upgradePoison.Attribute("x").Value) * config.MassNerfFactor;
+
+                            int roundedValue = (int)Math.Ceiling(newValue);
+
+                            upgrade.XPathSelectElement($@"skill[@id='{skillUnderTest}']").SetAttributeValue("x", roundedValue);
+                            cardWasChanged = true;
+                        }
+
+                        cardXmlToUpdate.Add(upgrade);
+                    }
+
+                    if (cardWasChanged)
+                    {
+                        newXmls.Add(int.Parse(cardXmlToUpdate.XPathSelectElement("id").Value), cardXmlToUpdate);
+                    }
                 }
-                catch (Exception e)
+                catch (Exception ex)
                 {
-                    lastLoadFailed = true;
-                    Console.WriteLine(e.Message);
-                }
-            } while (!lastLoadFailed);
-
-            Console.WriteLine($@"oldXmlDirectory found {oldCardXmls.Count} files");
-
-            Console.WriteLine("Parsing old XMLs into card XMLs.");
-
-            oldCardObjects = new List<Card>();
-
-            for (int i = 0; i < oldCardXmls.Count(); i++)
-            {
-                XDocument oldCardXml = oldCardXmls[i];
-                List<XElement> extractedCards = oldCardXml.XPathSelectElements("//root/unit").ToList();
-
-                //immediately extract them into cards, while we have the index.
-                foreach (XElement cardXml in extractedCards)
-                {
-                    oldCardObjects.Add(new Card(cardXml, i + 1));
+                    Console.WriteLine(ex.Message);
+                    Console.WriteLine(ex.StackTrace);
+                    //Console.WriteLine(ex.StackTrace);
+                    cardsFailedToUpdate.Add(name);
                 }
             }
 
-            Console.WriteLine($@"Found {oldCardObjects.Count} cards in old XML.");
+            Console.WriteLine($@"{newXmls.Count} cards received updates.  Saving...");
 
+
+            // Add the file for card ID to the end?
+            foreach (Card cardToUpdate in cardsWithPoison)
+            {
+                // find the root card xml
+                fileForCardId.Add(cardToUpdate.id, cardToUpdate.fileIndex);
+            }
+
+            SaveCards(cardsFailedToUpdate, newXmls, fileForCardId);
+        }
+
+        private void RunStandardUpdate(string updateFilePath, ConfigStore config)
+        {
+            List<string> cardsFailedToUpdate = new List<string>();
+
+            LoadOldCards(oldXmlDirectory);
 
             // Load the update file.
 
@@ -186,8 +251,6 @@ namespace TUComparatorLibrary
             // split the file into cards to find.
             string[] updateCards = updateFileContents.Split($@"{Environment.NewLine}{Environment.NewLine}");
 
-            Dictionary<int, XElement> newXmls = new Dictionary<int, XElement>();
-            Dictionary<int, int> fileForCardId = new Dictionary<int, int>();
 
             foreach (string updateCard in updateCards)
             {
@@ -397,6 +460,31 @@ namespace TUComparatorLibrary
 
             }
 
+            SaveCards(cardsFailedToUpdate, newXmls, fileForCardId);
+        }
+
+        private void Initialize(ConfigStore config)
+        {
+            this.config = config;
+
+            //Create the folder for the run.
+            Directory.CreateDirectory(outputDirectory);
+
+            string skillDataString = File.ReadAllText($@"{oldXmlDirectory}//skills_set.xml");
+            XDocument skillDataDoc = XDocument.Parse(skillDataString);
+            Updater.skillData = skillDataDoc.XPathSelectElements("//root/skillType").ToList();
+            Updater.factionData = skillDataDoc.XPathSelectElements("//root/unitType").ToList();
+
+            // get the fusion data, to replace how we're loading cards to change.
+            string fusionDataString = File.ReadAllText($@"{oldXmlDirectory}//fusion_recipes_cj2.xml");
+            XDocument fusionDataDoc = XDocument.Parse(fusionDataString);
+            Updater.fusionData = fusionDataDoc.XPathSelectElements("//root/fusion_recipe").ToList();
+        }
+
+        private void SaveCards(List<string> cardsFailedToUpdate, Dictionary<int, XElement> newXmls, Dictionary<int, int> fileForCardId)
+        {
+            int cardsUpdated = 0;
+
             // we have a list of all the cards to update, and the files they're in.
             // for each file, check for updates, and if there are some, do them and then write to file.
             for (int i = 0; i < oldCardXmls.Count; i++)
@@ -448,6 +536,56 @@ namespace TUComparatorLibrary
             }
         }
 
+        private void LoadOldCards(string oldXmlDirectory)
+        {
+            // load the XML files
+            oldCardXmls = new List<XDocument>();
+
+            Console.WriteLine("Reading old XMLs from file");
+
+            // load old XMLs
+            int counter = 1;
+            bool lastLoadFailed = false;
+            do
+            {
+                //try to load the file at the counter location.  If it exists, keep going.  If it doesn't, then stop
+                string filename = $@"cards_section_{counter}.xml";
+
+                try
+                {
+                    string file = File.ReadAllText($@"{oldXmlDirectory}//{filename}");
+                    XDocument fileXml = XDocument.Parse(file);
+                    oldCardXmls.Add(fileXml);
+                    counter++;
+                }
+                catch (Exception e)
+                {
+                    lastLoadFailed = true;
+                    Console.WriteLine(e.Message);
+                }
+            } while (!lastLoadFailed);
+
+            Console.WriteLine($@"oldXmlDirectory found {oldCardXmls.Count} files");
+
+            Console.WriteLine("Parsing old XMLs into card XMLs.");
+
+            oldCardObjects = new List<Card>();
+
+            for (int i = 0; i < oldCardXmls.Count(); i++)
+            {
+                XDocument oldCardXml = oldCardXmls[i];
+                List<XElement> extractedCards = oldCardXml.XPathSelectElements("//root/unit").ToList();
+
+                //immediately extract them into cards, while we have the index.
+                foreach (XElement cardXml in extractedCards)
+                {
+                    oldCardObjects.Add(new Card(cardXml, i + 1));
+                }
+            }
+
+            Console.WriteLine($@"Found {oldCardObjects.Count} cards in old XML.");
+        }
+
         private List<Card> FindCardsToUpdateRecursive(Card card)
         {
             // find the card objects.
@@ -481,7 +619,7 @@ namespace TUComparatorLibrary
             return cardsToUpdate;
         }
 
-        private static XElement BuildSingleSkillXml(string skillString, double scalingFactor, double summonScalingFactor)
+        private XElement BuildSingleSkillXml(string skillString, double scalingFactor, double summonScalingFactor)
         {
             // get the card data to build
             OutputSkillData skillData = ProcessSingleSkill(skillString, scalingFactor, summonScalingFactor);
@@ -538,7 +676,7 @@ namespace TUComparatorLibrary
             return newSkillXml;
         }
 
-        private static string StandardizeInputString(string inputString)
+        private string StandardizeInputString(string inputString)
         {
             string workingString = inputString;
 
@@ -564,7 +702,7 @@ namespace TUComparatorLibrary
         }
 
 
-        private static OutputSkillData ProcessSingleSkill(string fullSkillString, double scalingFactor, double summonScalingFactor)
+        private OutputSkillData ProcessSingleSkill(string fullSkillString, double scalingFactor, double summonScalingFactor)
         {
             string[] skillString = fullSkillString.Split(' ');
 
@@ -672,7 +810,7 @@ namespace TUComparatorLibrary
 
                     if (factionList.Contains(skillString[1 + newAll.Value]))
                     {
-                        XElement faction = Updater.factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[1 + newAll.Value])).FirstOrDefault();
+                        XElement faction = factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[1 + newAll.Value])).FirstOrDefault();
                         newFaction = int.Parse(faction.XPathSelectElement("id").Value);
 
                         factionMod = 1;
@@ -738,7 +876,7 @@ namespace TUComparatorLibrary
 
                     if (skillString.Length >= 3 && factionList.Contains(skillString[2]))
                     {
-                        XElement faction = Updater.factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[2])).FirstOrDefault();
+                        XElement faction = factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[2])).FirstOrDefault();
                         newFaction = int.Parse(faction.XPathSelectElement("id").Value);
                     }
 
@@ -763,7 +901,7 @@ namespace TUComparatorLibrary
                             }
                             else if (factionList.Contains(skillString[1]))
                             {
-                                XElement faction = Updater.factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[1])).FirstOrDefault();
+                                XElement faction = factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[1])).FirstOrDefault();
                                 newFaction = int.Parse(faction.XPathSelectElement("id").Value);
                             }
                             else
@@ -785,7 +923,7 @@ namespace TUComparatorLibrary
                                 newNumber = int.Parse(skillString[1]);
                             }
 
-                            XElement factionDefault = Updater.factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[2])).FirstOrDefault();
+                            XElement factionDefault = factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[2])).FirstOrDefault();
                             newFaction = int.Parse(factionDefault.XPathSelectElement("id").Value);
 
                             break;

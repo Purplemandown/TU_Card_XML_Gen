@@ -7,7 +7,7 @@ using TUComparatorLibrary;
 
 XDocument config = XDocument.Parse(File.ReadAllText("config.xml"));
 
-new Updater().Run(config.XPathSelectElement("//PathToCardXMLs").Value, config.XPathSelectElement("//PathToUpdateFile").Value, new ConfigStore(config.Root));
+new Updater().Run(config.XPathSelectElement("//PathToCardXMLs").Value, config.XPathSelectElement("//StandardOperationConfig/PathToUpdateFile").Value, new ConfigStore(config.Root));
 
 Console.WriteLine("End Results.  Press any key to end.");
 Console.ReadKey();

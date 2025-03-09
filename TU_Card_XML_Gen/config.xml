@@ -1,9 +1,15 @@
-﻿<?xml version="1.0" encoding="utf-8" ?> 
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <root>
+	<Operation>massnerfpoison</Operation>
+	<!-- VALID OPERATIONS: 
+	<Operation>standard</Operation>
+	<Operation>massnerfpoison</Operation>
+	-->
 	<PathToCardXMLs>C:\Users\purpl\OneDrive\Documents\TU_Test</PathToCardXMLs>
-	<PathToUpdateFile>C:\Users\purpl\OneDrive\Documents\TU_Test\updatefile.txt</PathToUpdateFile>
-	<AutoStats>
-		<!-- 
+	<StandardOperationConfig>
+		<PathToUpdateFile>C:\Users\purpl\OneDrive\Documents\TU_Test\updatefile.txt</PathToUpdateFile>
+		<AutoStats>
+			<!-- 
 		WHAT THESE MEAN:
 		
 		When you provide the generator with stats, it gives it the stats for the max level of the highest tier (which you entered)
@@ -18,7 +24,11 @@
 		Tier 1 Level 6 has 60% of stats
 		Tier 1 Level 1 has 45% of stats.
 		-->
-		<PercentAcrossTier>15</PercentAcrossTier>
-		<PercentBetweenTiers>5</PercentBetweenTiers>
-	</AutoStats>
+			<PercentAcrossTier>15</PercentAcrossTier>
+			<PercentBetweenTiers>5</PercentBetweenTiers>
+		</AutoStats>
+	</StandardOperationConfig>
+	<MassNerfPoisonConfig>
+		<Factor>.4</Factor>
+	</MassNerfPoisonConfig>
 </root>
