@@ -808,7 +808,7 @@ namespace TUComparatorLibrary
 
                     factionMod = 0;
 
-                    if (factionList.Contains(skillString[1 + newAll.Value]))
+                    if (factionList.Contains(skillString[1 + newAll.Value], StringComparer.OrdinalIgnoreCase))
                     {
                         XElement faction = factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[1 + newAll.Value])).FirstOrDefault();
                         newFaction = int.Parse(faction.XPathSelectElement("id").Value);
