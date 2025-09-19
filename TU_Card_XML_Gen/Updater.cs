@@ -7,7 +7,7 @@ namespace TUComparatorLibrary
     public class Updater
     {
 
-        string version = "1.3.2";
+        string version = "1.5.0";
         public static List<XElement> skillData;
         public static List<XElement> factionData;
         public static List<XElement> fusionData;
@@ -310,12 +310,18 @@ namespace TUComparatorLibrary
                         {
                             attack = int.Parse(updateStats[0]);
                             health = int.Parse(updateStats[1]);
-                            delay = int.Parse(updateStats[2]);
+                            if (updateStats[2] != "-")
+                            {
+                                delay = int.Parse(updateStats[2]);
+                            }
                         }
                         else
                         {
                             health = int.Parse(updateStats[0]);
-                            delay = int.Parse(updateStats[1]);
+                            if (updateStats[1] != "-")
+                            {
+                                delay = int.Parse(updateStats[1]);
+                            }
                         }
                     }
                     catch (FormatException ex)
@@ -325,8 +331,6 @@ namespace TUComparatorLibrary
                         cardsFailedToUpdate.Add(updateCardLines[0]);
                         continue;
                     }
-
-                    // START REWRITE
 
                     for (int i = 0; i < cardXMLsToUpdate.Count; i++)
                     {
@@ -346,16 +350,16 @@ namespace TUComparatorLibrary
 
                         // build the level scaling factor
                         int levelsBelowMax = (upgrades.Count);  // Don't need a -1, as there's one extra that's at the card level that cancels out the off-by-one
-                        double levelScaling = (levelsBelowMax * config.AutoStats.PercentAcrossTier * 0.01) / upgrades.Count;
+                        double levelScaling = (levelsBelowMax * config.AutoStats.PercentAcrossTier * 0.01) / (upgrades.Count <= 0 ? 1 : upgrades.Count);
 
-                        double summonLevelScaling = ((double)1 / cardXMLsToUpdate.Count) * (1 - ((double)levelsBelowMax / upgrades.Count));
+                        double summonLevelScaling = ((double)1 / cardXMLsToUpdate.Count) * (1 - ((double)levelsBelowMax / (upgrades.Count <= 0 ? 1 : upgrades.Count)));
 
                         double scalingFactor = (1 - (tierScaling + levelScaling));
                         double summonScalingFactor = summonLevelScaling + summonTierScaling;
 
                         // Level 1 is on the card
                         // remove the delay node, and add it if needed.
-                        if (cardXmlToUpdate.XPathSelectElement("cost") != null)
+                        if (cardXmlToUpdate.XPathSelectElement("cost") != null && delay != -1)
                         {
                             cardXmlToUpdate.XPathSelectElement("cost")?.Remove();
 
@@ -365,14 +369,14 @@ namespace TUComparatorLibrary
                         // Base card healths and attacks
                         cardXmlToUpdate.XPathSelectElement("health")?.Remove();
 
-                        cardXmlToUpdate.Add(new XElement("health", Convert.ToInt32(Math.Floor(scalingFactor * health))));
+                        cardXmlToUpdate.Add(new XElement("health", Convert.ToInt32(Math.Max(Math.Floor(scalingFactor * health), 1))));
 
                         // remove the attack node, and replace it if needed.
                         if (cardXmlToUpdate.XPathSelectElement("attack") != null)
                         {
                             cardXmlToUpdate.XPathSelectElement("attack")?.Remove();
 
-                            cardXmlToUpdate.Add(new XElement("attack", Convert.ToInt32(Math.Floor(scalingFactor * attack))));
+                            cardXmlToUpdate.Add(new XElement("attack", Convert.ToInt32(Math.Max(Math.Floor(scalingFactor * attack), 1))));
                         }
 
                         List<XElement> outputSkills = new List<XElement>();
@@ -408,7 +412,7 @@ namespace TUComparatorLibrary
                             // Base card healths and attacks
                             upgrade.XPathSelectElement("health")?.Remove();
 
-                            upgrade.Add(new XElement("health", Convert.ToInt32(Math.Floor(scalingFactor * health))));
+                            upgrade.Add(new XElement("health", Convert.ToInt32(Math.Max(Math.Floor(scalingFactor * health), 1))));
 
                             // remove the attack node, and replace it if needed.
                             if (attack != -1)
@@ -441,7 +445,6 @@ namespace TUComparatorLibrary
                         newXmls.Add(int.Parse(cardXmlToUpdate.XPathSelectElement("id").Value), cardXmlToUpdate);
                     }
 
-                    // END REWRITE
 
                     // Add the file for card ID to the end?
                     foreach (Card cardToUpdate in cardsToUpdate)
@@ -586,6 +589,17 @@ namespace TUComparatorLibrary
             Console.WriteLine($@"Found {oldCardObjects.Count} cards in old XML.");
         }
 
+        static string neocyteFusionCoreId = "42745";
+        static string neocyteCoreId = "31184";
+        static string altarId = "49970";
+
+        static List<string> ascentionMaterials = new List<string>()
+        {
+            neocyteFusionCoreId,
+            neocyteCoreId,
+            altarId
+        };
+
         private List<Card> FindCardsToUpdateRecursive(Card card)
         {
             // find the card objects.
@@ -598,16 +612,54 @@ namespace TUComparatorLibrary
 
                 if (relevantRecipies.Count > 0)
                 {
-                    // Do any of the ones have only a double of one other card?
                     foreach (XElement recipe in relevantRecipies)
                     {
                         List<XElement> resources = recipe.XPathSelectElements("resource").ToList();
 
+                        // Do any of the ones have only a double of one other card?
                         if (resources.Count == 1 && resources.First().Attributes("number")?.FirstOrDefault()?.Value == "2")
                         {
-                            Card cardToUpdate = oldCardObjects.Where(x => x.id.Equals(int.Parse(resources.First().Attributes("card_id").First().Value)) || x.upgradeLevels.Values.Where(y => y.id.Equals(int.Parse(resources.First().Attributes("card_id").First().Value))).ToList().Count >= 1).FirstOrDefault();
+                            string cardId = resources.First().Attributes("card_id").First().Value;
+                            Card? cardToUpdate = oldCardObjects.Where(x => x.id.Equals(int.Parse(cardId)) || x.upgradeLevels.Values.Where(y => y.id.Equals(int.Parse(cardId))).ToList().Count >= 1).FirstOrDefault();
 
-                            cardsToUpdate = FindCardsToUpdateRecursive(cardToUpdate);
+                            if (cardToUpdate != null)
+                            {
+                                cardsToUpdate = FindCardsToUpdateRecursive(cardToUpdate);
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Can't find card with ID {cardId}.  Skipping.");
+                            }
+                        }
+
+                        // Try to find commanders
+                        if (resources.Count == 2)
+                        {
+                            // look at the recipie - we should have one resource that is the card of one level down and one that is the ascention material
+                            int countWithAscentionMaterials = resources.Where(x => (x.Attributes("number")?.FirstOrDefault()?.Value.Equals("1") ?? false) && ascentionMaterials.Contains(x.Attributes("card_id")?.FirstOrDefault()?.Value)).Count();
+                            int countWithoutAscentionMaterials = resources.Where(x => (x.Attributes("number")?.FirstOrDefault()?.Value.Equals("1") ?? false) && !(ascentionMaterials.Contains(x.Attributes("card_id")?.FirstOrDefault()?.Value))).Count();
+
+                            if (countWithAscentionMaterials == 1 && countWithoutAscentionMaterials == 1)
+                            {
+                                // get the card ID that isn't the ascention material
+                                string? cardId = resources.Where(x => (x.Attributes("number")?.FirstOrDefault()?.Value.Equals("1") ?? false) && !(ascentionMaterials.Contains(x.Attributes("card_id")?.FirstOrDefault()?.Value))).FirstOrDefault()?.Attributes("card_id")?.FirstOrDefault().Value;
+
+                                if (!string.IsNullOrEmpty(cardId))
+                                {
+                                    Card? cardToUpdate = oldCardObjects.Where(x => x.id.Equals(int.Parse(cardId)) || x.upgradeLevels.Values.Where(y => y.id.Equals(int.Parse(cardId))).ToList().Count >= 1).FirstOrDefault();
+
+                                    if (cardToUpdate != null)
+                                    {
+                                        cardsToUpdate = FindCardsToUpdateRecursive(cardToUpdate);
+
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"Can't find card with ID {cardId}.  Skipping.");
+
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1028,12 +1080,12 @@ namespace TUComparatorLibrary
             // scale the values.
             if (newValue != null)
             {
-                scaledValue = Convert.ToInt32(Math.Floor(newValue.Value * scalingFactor));
+                scaledValue = Convert.ToInt32(Math.Max(Math.Floor(newValue.Value * scalingFactor), 1));
             }
 
             if (newNumber != null)
             {
-                scaledNumber = Convert.ToInt32(Math.Floor(newNumber.Value * scalingFactor));
+                scaledNumber = Convert.ToInt32(Math.Max(Math.Floor(newNumber.Value * scalingFactor), 1));
             }
 
             int? cardId = null;
