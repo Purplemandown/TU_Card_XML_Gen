@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <root>
-	<Operation>massnerfpoison</Operation>
+	<Operation>standard</Operation>
 	<!-- VALID OPERATIONS: 
 	<Operation>standard</Operation>
 	<Operation>massnerfpoison</Operation>
