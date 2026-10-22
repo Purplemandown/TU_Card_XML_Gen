@@ -220,8 +220,17 @@ namespace TUComparatorLibrary
 
             LoadOldCards(oldXmlDirectory);
 
-            // Load the update file, split into cards.  Comments, blank lines and "---" lines are handled by the reader.
-            List<UpdateBlock> updateCards = UpdateFileReader.Read(updateFilePath);
+            // Load the update file, split into cards.  Comments, blank lines, "---" lines and "// SCALE:" are handled by the reader.
+            List<UpdateBlock> updateCards;
+            try
+            {
+                updateCards = UpdateFileReader.Read(updateFilePath, config.Tiered);
+            }
+            catch (FormatException ex)
+            {
+                Console.WriteLine($"Stopping - nothing was changed. {ex.Message}");
+                return;
+            }
 
             Console.WriteLine($"Update file has {updateCards.Count} cards.");
 
@@ -266,6 +275,14 @@ namespace TUComparatorLibrary
                     if (cardFindError)
                     {
                         continue;
+                    }
+
+                    // A card can only be updated once per run.  Check before touching anything, otherwise the shared
+                    // lower tiers would be half-changed when the second update fails.
+                    Card? alreadyUpdated = cardsToUpdate.FirstOrDefault(x => newXmls.ContainsKey(x.id));
+                    if (alreadyUpdated != null)
+                    {
+                        throw new FormatException($"{alreadyUpdated.name} was already updated earlier in this run (it's a fusion tier of an earlier card). Put these cards in separate runs.");
                     }
 
                     List<XElement> cardXMLsToUpdate = new List<XElement>();
@@ -330,6 +347,18 @@ namespace TUComparatorLibrary
                         skillLines.Add(SkillLineTokenizer.Tokenize(updateCardLines[j], IsCardName));
                     }
 
+                    // Tiered scaling comes from a "// SCALE:" comment above this card, or from config.xml.  null = AutoStats.
+                    TieredScaling? tiered = updateCard.Scaling ?? (config.ScalingMode == ConfigStore.ScalingModes.Tiered ? config.Tiered : null);
+
+                    // Summoned cards: marked with "---" in the update file, or in the summoned-card set.
+                    bool isSummoned = updateCard.SummonedByPrevious || cardXMLsToUpdate.Last().XPathSelectElement("set")?.Value.Trim() == "9500";
+
+                    roundToNearest = tiered != null;
+
+                    Console.WriteLine(tiered == null
+                        ? "  Scaling: autostats"
+                        : $"  Scaling: tiered, {(isSummoned ? $"summoned card {tiered.Summoned}" : $"fusion levels {string.Join(", ", tiered.FusionLevels)}")}");
+
                     for (int i = 0; i < cardXMLsToUpdate.Count; i++)
                     {
                         // get the card (can't foreach because we need to key on the index)
@@ -355,6 +384,12 @@ namespace TUComparatorLibrary
                         double scalingFactor = (1 - (tierScaling + levelScaling));
                         double summonScalingFactor = summonLevelScaling + summonTierScaling;
 
+                        if (tiered != null)
+                        {
+                            // i is the fusion level: the chain is ordered from the base card up.
+                            scalingFactor = tiered.Factor(i, isSummoned, 1, upgrades.Count + 1);
+                        }
+
                         // Level 1 is on the card
                         // remove the delay node, and add it if needed.
                         if (cardXmlToUpdate.XPathSelectElement("cost") != null && delay != -1)
@@ -367,14 +402,14 @@ namespace TUComparatorLibrary
                         // Base card healths and attacks
                         cardXmlToUpdate.XPathSelectElement("health")?.Remove();
 
-                        cardXmlToUpdate.Add(new XElement("health", Convert.ToInt32(Math.Max(Math.Floor(scalingFactor * health), 1))));
+                        cardXmlToUpdate.Add(new XElement("health", ScaleStat(health, scalingFactor)));
 
                         // remove the attack node, and replace it if needed.
                         if (cardXmlToUpdate.XPathSelectElement("attack") != null && attack != -1)
                         {
                             cardXmlToUpdate.XPathSelectElement("attack")?.Remove();
 
-                            cardXmlToUpdate.Add(new XElement("attack", Convert.ToInt32(Math.Max(Math.Floor(scalingFactor * attack), 1))));
+                            cardXmlToUpdate.Add(new XElement("attack", ScaleStat(attack, scalingFactor)));
                         }
 
                         List<XElement> outputSkills = new List<XElement>();
@@ -406,11 +441,16 @@ namespace TUComparatorLibrary
                             scalingFactor = (1 - (tierScaling + levelScaling));
                             summonScalingFactor = summonLevelScaling + summonTierScaling;
 
+                            if (tiered != null)
+                            {
+                                // upgrade k is level k + 2 (the base card is level 1)
+                                scalingFactor = tiered.Factor(i, isSummoned, k + 2, upgrades.Count + 1);
+                            }
 
                             // Base card healths and attacks
                             upgrade.XPathSelectElement("health")?.Remove();
 
-                            upgrade.Add(new XElement("health", Convert.ToInt32(Math.Max(Math.Floor(scalingFactor * health), 1))));
+                            upgrade.Add(new XElement("health", ScaleStat(health, scalingFactor)));
 
                             // remove the attack node, and replace it if needed.
                             if (attack != -1)
@@ -420,7 +460,7 @@ namespace TUComparatorLibrary
                                     upgrade.XPathSelectElement("attack")?.Remove();
                                 }
 
-                                upgrade.Add(new XElement("attack", Convert.ToInt32(Math.Floor(scalingFactor * attack))));
+                                upgrade.Add(new XElement("attack", ScaleStat(attack, scalingFactor)));
                             }
 
                             List<XElement> upgradeOutputSkills = new List<XElement>();
@@ -468,6 +508,28 @@ namespace TUComparatorLibrary
             }
 
             SaveCards(cardsFailedToUpdate, newXmls, fileForCardId, warnings);
+        }
+
+        /// <summary>True while the current card uses tiered scaling, which rounds to nearest instead of down.</summary>
+        private bool roundToNearest = false;
+
+        /// <summary>
+        /// Scales a max value.  A max of 0 stays 0 at every level; anything else is rounded
+        /// (down for autostats, to nearest for tiered) with a minimum of 1.
+        /// </summary>
+        private int ScaleStat(int maxValue, double scalingFactor)
+        {
+            if (maxValue == 0)
+            {
+                return 0;
+            }
+
+            double scaled = maxValue * scalingFactor;
+            int rounded = roundToNearest
+                ? Convert.ToInt32(Math.Round(scaled, MidpointRounding.AwayFromZero))
+                : Convert.ToInt32(Math.Floor(scaled));
+
+            return Math.Max(rounded, 1);
         }
 
         private bool IsCardName(string name)
@@ -1111,12 +1173,12 @@ namespace TUComparatorLibrary
             // scale the values.
             if (newValue != null)
             {
-                scaledValue = Convert.ToInt32(Math.Max(Math.Floor(newValue.Value * scalingFactor), 1));
+                scaledValue = ScaleStat(newValue.Value, scalingFactor);
             }
 
             if (newNumber != null)
             {
-                scaledNumber = Convert.ToInt32(Math.Max(Math.Floor(newNumber.Value * scalingFactor), 1));
+                scaledNumber = ScaleStat(newNumber.Value, scalingFactor);
             }
 
             int? cardId = null;

@@ -27,6 +27,29 @@
 			<PercentAcrossTier>15</PercentAcrossTier>
 			<PercentBetweenTiers>5</PercentBetweenTiers>
 		</AutoStats>
+		<Scaling>
+			<!--
+		Mode: autostats (the percentages above) or tiered (the ranges below).
+		The update file can switch to tiered part way through with a comment, e.g.
+		  // SCALE: 50..60, 60..80, 80..100
+		and back to this setting with
+		  // SCALE: DEFAULT
+
+		TIERED: each fusion level gets a range of the max values you type.  Level 1 of that
+		tier gets the first number, the tier's max level gets the second, levels between are
+		spread evenly.  FusionLevel0 is the base card, FusionLevel1 its first fusion, and so on;
+		higher fusion levels use the last one listed.  Summoned cards (after a line of three or
+		more dashes in the update file, or in set 9500) use Summoned on every tier.
+		Values round to the nearest whole number, minimum 1.  A max of 0 stays 0 at every level.
+		-->
+			<Mode>autostats</Mode>
+			<Tiered>
+				<FusionLevel0>50..60</FusionLevel0>
+				<FusionLevel1>60..80</FusionLevel1>
+				<FusionLevel2>80..100</FusionLevel2>
+				<Summoned>50..100</Summoned>
+			</Tiered>
+		</Scaling>
 	</StandardOperationConfig>
 	<MassNerfPoisonConfig>
 		<Factor>.4</Factor>

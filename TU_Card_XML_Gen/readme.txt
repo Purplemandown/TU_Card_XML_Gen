@@ -25,9 +25,17 @@ Edit config.xml (it sits next to the exe):
 
   <PathToUpdateFile>  Full path to your update file (standard operation only).
 
-  <AutoStats>         How stats drop off for lower levels/tiers (see section 6).
+  <AutoStats>         Percentages for autostats scaling (see section 6).
     <PercentAcrossTier>    default 15
     <PercentBetweenTiers>  default 5
+
+  <Scaling>           Which scaling to use (see section 6).
+    <Mode>                 autostats (default) or tiered
+    <Tiered>               Ranges for tiered scaling:
+      <FusionLevel0>         default 50..60
+      <FusionLevel1>         default 60..80
+      <FusionLevel2>         default 80..100
+      <Summoned>             default 50..100
 
   <MassNerfPoisonConfig><Factor>   default .4 (massnerfpoison only)
 
@@ -68,6 +76,11 @@ have a Summon for the card after it. The cards are still updated either way.
 
 COMMENTS start with // and run to the end of the line. They can be on their own
 line or after anything else. A comment line inside a card doesn't split the card.
+
+SCALE COMMENTS change the scaling for every card that follows (section 6):
+    // SCALE: 50..60, 60..80, 80..100
+    // SCALE: 50..100
+    // SCALE: DEFAULT
 
 Either Windows (CRLF) or Unix (LF) line endings are fine.
 
@@ -128,7 +141,7 @@ CARD NAME (line 1)
     (Neocyte Fusion Core, Neocyte Core, Altar).
   - The old "Name1|Name2|Name3" pipe syntax is gone. Don't use it.
 
-STATS (line 3) - these are the stats for the MAX level of the TOP tier:
+STATS (line 3) - these are the MAX stats (see section 6 for how they scale):
     attack/health/delay      assaults               e.g. 60/200/4
     health/delay             structures, commanders e.g. 800/2   or  1200/-
     <health>HP               commanders             e.g. 1200HP  (same as 1200/-)
@@ -140,7 +153,7 @@ SKILLS (line 4+)
   - The skills you list REPLACE all existing skills on the card, on every tier and
     level. List every skill the card should have, not just the changed ones.
   - Skills are written to the XML in the order you list them.
-  - Values are the MAX level / top tier values; lower levels scale down (section 6).
+  - Values are the MAX values; lower levels and tiers scale down (section 6).
   - Nothing is case-sensitive: skill names, "all", "every", factions and triggers
     can be written in any case ("RALLY ALL rt 100 On Attacked" is fine).
   - A word the tool doesn't recognise (e.g. a misspelt skill) makes that card FAIL
@@ -244,22 +257,77 @@ works too.
 
 
 -----------------------------------------------------------------------
-6. HOW AUTO-SCALING WORKS
+6. HOW SCALING WORKS
 -----------------------------------------------------------------------
 
-You give the stats and skill values for the top tier at max level. Everything
-else is derived from AutoStats. With the defaults (15 across, 5 between), for a
+The values you type are the MAX values. Lower levels and lower fusion tiers get a
+percentage of them. There are two ways to work out that percentage, chosen by
+<Scaling><Mode> in config.xml and by SCALE comments in the update file.
+
+For both:
+  - Applies to attack, health, skill values, and target counts (n).
+  - A max of 0 stays 0 at every level (e.g. 0 attack, Rally 0).
+  - Anything else is rounded (see below), with a minimum of 1.
+  - NOT scaled: delay, cooldowns, factions, all, skill-to-skill choices.
+  - The console prints which scaling each card used.
+  - If you need exact values at specific levels, run the tool, then hand-edit
+    those levels in the output.
+
+
+AUTOSTATS (Mode autostats - the original behaviour)
+
+Counted down from the top tier. With the defaults (15 across, 5 between), for a
 card with three fusion tiers:
 
     Tier 3, max level  100%        Tier 3, level 1   85%
     Tier 2, max level   80%        Tier 2, level 1   65%
     Tier 1, max level   60%        Tier 1, level 1   45%
 
-  - Applies to attack, health, skill values, and target counts (n).
-  - Results round DOWN, with a minimum of 1.
-  - NOT scaled: delay, cooldowns, factions, all, skill-to-skill choices.
-  - If you need exact values at specific levels, run the tool, then hand-edit
-    those levels in the output.
+Results round DOWN.
+
+
+TIERED (Mode tiered, or any SCALE comment other than DEFAULT)
+
+Each fusion level has its own range. Level 1 of the tier gets the first number,
+the tier's max level gets the second, and the levels between are spread evenly.
+Defaults:
+
+    Fusion level 0 (base card)      50% .. 60% of max
+    Fusion level 1                  60% .. 80% of max
+    Fusion level 2                  80% .. 100% of max
+    Summoned card (every tier)      50% .. 100% of max
+
+  - Fusion levels are counted up from the base card: fusion level 0 is the card
+    with no fusion recipe, 1 is made from it, and so on. Fusion levels above the
+    last range use the last range.
+  - A "summoned card" is one that comes right after a "---" in the update file,
+    or one in set 9500.
+  - Results round to the NEAREST whole number (halves round up).
+
+Example, Pure Benediction with 200 health and 3 levels per tier:
+    Benediction        100, 110, 120
+    Holy Benediction   120, 140, 160
+    Pure Benediction   160, 180, 200
+
+
+SCALE COMMENTS
+
+A comment starting with SCALE: changes the scaling for every card that starts
+after it, until the next SCALE comment. If it's on a card's name line, that card
+is included. Not case-sensitive; % signs are optional.
+
+    // SCALE: 50..60, 60..80, 80..100
+        Tiered. Fusion levels 0, 1, 2 use these ranges. Summoned cards keep the
+        Summoned range from config.xml.
+    // SCALE: 50..100
+        Tiered. One range for everything, summoned cards included.
+    // SCALE: 50..60, 60..80, 80..100, SUMMON 50..100
+        Tiered, and also sets the summoned-card range.
+    // SCALE: DEFAULT
+        Back to whatever config.xml says.
+
+A SCALE comment the tool can't read stops the whole run before anything is
+changed, and says which line is wrong.
 
 
 -----------------------------------------------------------------------
@@ -279,8 +347,9 @@ not used. The XMLs are changed in place, as above.
     your first skill as stats.
   - Card names (line 1) are matched exactly and the first match wins, so a typo
     means "Can't find a card with name ..." and that card is skipped.
-  - Updating the same card twice in one run (including two cards that share
-    fusion tiers) fails the second one.
+  - A card can only be updated once per run. If a later card shares fusion tiers
+    with an earlier one (e.g. Pure Benediction, then Holy Benediction), the later
+    one fails without changing anything. Do them in separate runs.
   - "Jam 4" is four targets, not "every 4".
 
 
@@ -300,3 +369,9 @@ CHANGES IN 1.6.0
   - Fixed "Prog" turning "Progenitor" into "Progenitorenitor".
   - Summon card names containing a skill name (e.g. "... Mortar ...") now work.
   - Windows and Unix line endings both work in the update file.
+  - New tiered scaling option (config.xml <Scaling>), with per-fusion-level and
+    summoned-card ranges.
+  - "// SCALE:" comments change the scaling for the cards that follow.
+  - A max value of 0 stays 0 at every level (it used to become 1).
+  - A card that shares fusion tiers with an earlier card in the same run now
+    fails cleanly; before, the shared tiers were left half-changed.

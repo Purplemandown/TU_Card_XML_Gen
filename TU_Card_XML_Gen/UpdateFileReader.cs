@@ -15,6 +15,9 @@ namespace TU_Card_XML_Gen
         /// <summary>True when the gap before this card contained a "---" line, i.e. this card is summoned by the card before it.</summary>
         public bool SummonedByPrevious;
 
+        /// <summary>Tiered scaling set by a "// SCALE:" comment above this card, or null to use config.xml's setting.</summary>
+        public TieredScaling? Scaling;
+
         public string Name => Lines.Count > 0 ? Lines[0] : string.Empty;
     }
 
@@ -27,22 +30,26 @@ namespace TU_Card_XML_Gen
     ///  - Cards are separated by one or more blank lines and/or "---" lines (three or more dashes).
     ///    Any mix of blank, comment and "---" lines between two cards counts as one gap.
     ///  - If the gap contains a "---" line, the next card is marked as summoned by the previous one.
+    ///  - A "// SCALE: ..." comment sets tiered scaling for every card that starts after it
+    ///    (including a card whose name line it's on), until the next SCALE comment.
     /// Works with both Windows (CRLF) and Unix (LF) line endings.
     /// </summary>
     internal static class UpdateFileReader
     {
         private static readonly Regex SummonSeparator = new Regex(@"^-{3,}$");
+        private static readonly Regex ScaleDirective = new Regex(@"^\s*scale\s*:(.*)$", RegexOptions.IgnoreCase);
 
-        public static List<UpdateBlock> Read(string path)
+        public static List<UpdateBlock> Read(string path, TieredScaling configTiered)
         {
-            return Parse(File.ReadAllLines(path));
+            return Parse(File.ReadAllLines(path), configTiered);
         }
 
-        public static List<UpdateBlock> Parse(IEnumerable<string> rawLines)
+        public static List<UpdateBlock> Parse(IEnumerable<string> rawLines, TieredScaling configTiered)
         {
             List<UpdateBlock> blocks = new List<UpdateBlock>();
             UpdateBlock? current = null;
             bool gapHasSummonSeparator = false;
+            TieredScaling? currentScaling = null;
             int lineNumber = 0;
 
             foreach (string rawLine in rawLines)
@@ -50,6 +57,26 @@ namespace TU_Card_XML_Gen
                 lineNumber++;
 
                 bool hadComment = rawLine.Contains("//");
+
+                if (hadComment)
+                {
+                    Match directive = ScaleDirective.Match(rawLine.Substring(rawLine.IndexOf("//", StringComparison.Ordinal) + 2));
+                    if (directive.Success)
+                    {
+                        try
+                        {
+                            currentScaling = TieredScaling.ParseDirective(directive.Groups[1].Value, configTiered);
+                            Console.WriteLine($"Line {lineNumber}: scaling for the cards that follow is now "
+                                + (currentScaling == null ? "the config.xml default" : $"tiered ({currentScaling})") + ".");
+                        }
+                        catch (FormatException ex)
+                        {
+                            // A bad SCALE line would quietly mis-scale every card after it, so stop the run instead.
+                            throw new FormatException($"Line {lineNumber} of the update file: {ex.Message}", ex);
+                        }
+                    }
+                }
+
                 string line = StripComment(rawLine).Trim();
 
                 if (line.Length == 0 && hadComment)
@@ -75,7 +102,8 @@ namespace TU_Card_XML_Gen
                     current = new UpdateBlock
                     {
                         StartLine = lineNumber,
-                        SummonedByPrevious = gapHasSummonSeparator
+                        SummonedByPrevious = gapHasSummonSeparator,
+                        Scaling = currentScaling
                     };
                     blocks.Add(current);
                     gapHasSummonSeparator = false;
