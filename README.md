@@ -55,6 +55,8 @@ Each card is a block of lines:
 
 Windows (CRLF) and Unix (LF) line endings both work.
 
+Spaces and tabs at the start or end of any line are ignored, so a line holding only spaces counts as blank. Spaces around the `/` in stats are fine too (`10 / 20 / 1`).
+
 ### Card name (line 1)
 
 - Must match the in-game name **exactly**, including capitalisation and spacing.

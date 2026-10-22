@@ -84,6 +84,9 @@ SCALE COMMENTS change the scaling for every card that follows (section 6):
 
 Either Windows (CRLF) or Unix (LF) line endings are fine.
 
+Spaces and tabs at the start or end of any line are ignored, so a line holding only
+spaces counts as blank. Spaces around the / in stats are fine too (10 / 20 / 1).
+
 (Some card names in the examples below are made up.)
 
 
