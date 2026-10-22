@@ -7,7 +7,7 @@ namespace TUComparatorLibrary
     public class Updater
     {
 
-        string version = "1.5.0";
+        string version = "1.6.0";
         public static List<XElement> skillData;
         public static List<XElement> factionData;
         public static List<XElement> fusionData;
@@ -83,31 +83,6 @@ namespace TUComparatorLibrary
             "flurry",
             "refresh",
             "death" //trigger
-        };
-
-        private static Dictionary<string, string> standardizationDictionary = new Dictionary<string, string>()
-        {
-            { " xn", " Xeno" },
-            { " imp ", " Imperial " },
-            { " rd", " Raider" },
-            { " bt", " Bloodthirsty" },
-            { " rt", " Righteous" },
-            { " prog", " Progenitor" },
-            { " OnPlay", " play" },
-            { " On Play:", " play" },
-            { " On Play", " play" },
-            { " OnAttacked", " attacked" },
-            { " On Attacked:", " attacked" },
-            { " On Attacked", " attacked" },
-            { " OnDeath", " death" },
-            { " On Death:", " death" },
-            { " On Death", " death" },
-            { " zerk", " berserk" }
-        };
-
-        private static List<string> wordsToIgnoreStandardization = new List<string>()
-        {
-            "imperial"
         };
 
         private string outputDirectory = $"output-{DateTime.Now.ToString("yyyy-MM-dd-hh-mm-ss")}";
@@ -241,25 +216,30 @@ namespace TUComparatorLibrary
         private void RunStandardUpdate(string updateFilePath, ConfigStore config)
         {
             List<string> cardsFailedToUpdate = new List<string>();
+            List<string> warnings = new List<string>();
 
             LoadOldCards(oldXmlDirectory);
 
-            // Load the update file.
+            // Load the update file, split into cards.  Comments, blank lines and "---" lines are handled by the reader.
+            List<UpdateBlock> updateCards = UpdateFileReader.Read(updateFilePath);
 
-            string updateFileContents = File.ReadAllText(updateFilePath).Trim();
+            Console.WriteLine($"Update file has {updateCards.Count} cards.");
 
-            // split the file into cards to find.
-            string[] updateCards = updateFileContents.Split($@"{Environment.NewLine}{Environment.NewLine}");
+            CheckSummonSeparators(updateCards, warnings);
 
-
-            foreach (string updateCard in updateCards)
+            foreach (UpdateBlock updateCard in updateCards)
             {
                 // the card name should be the first line
-                string[] updateCardLines = updateCard.Split(Environment.NewLine);
+                string[] updateCardLines = updateCard.Lines.ToArray();
 
                 try
                 {
                     Console.WriteLine($"Updating {updateCardLines[0]}");
+
+                    if (updateCardLines.Length < 3)
+                    {
+                        throw new FormatException($"Card at line {updateCard.StartLine} needs at least a name line, a rarity/faction line and a stats line.");
+                    }
 
                     // New way - use the name given to look up the ID.  Use the ID to see if it has any children.  Recurse through that until we're out of cards to load.
 
@@ -298,15 +278,22 @@ namespace TUComparatorLibrary
                     }
 
                     //parse the ending attack, health, and delay from the update file
-                    string[] updateStats = updateCardLines[2].Split('/');
+                    string[] updateStats = updateCardLines[2].Split('/').Select(x => x.Trim()).ToArray();
 
                     int attack = -1;
                     int health = -1;
                     int delay = -1;
 
+                    // Commander / structure health on its own, e.g. "1200HP" or "1200 hp".  Delay is left unchanged.
+                    System.Text.RegularExpressions.Match healthOnly = System.Text.RegularExpressions.Regex.Match(updateCardLines[2], @"^\s*(\d+)\s*hp\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
                     try
                     {
-                        if (updateStats.Length == 3)
+                        if (healthOnly.Success)
+                        {
+                            health = int.Parse(healthOnly.Groups[1].Value);
+                        }
+                        else if (updateStats.Length == 3)
                         {
                             attack = int.Parse(updateStats[0]);
                             health = int.Parse(updateStats[1]);
@@ -315,13 +302,17 @@ namespace TUComparatorLibrary
                                 delay = int.Parse(updateStats[2]);
                             }
                         }
-                        else
+                        else if (updateStats.Length == 2)
                         {
                             health = int.Parse(updateStats[0]);
                             if (updateStats[1] != "-")
                             {
                                 delay = int.Parse(updateStats[1]);
                             }
+                        }
+                        else
+                        {
+                            throw new FormatException($"Stats line \"{updateCardLines[2]}\" should look like attack/health/delay, health/delay or <health>HP.");
                         }
                     }
                     catch (FormatException ex)
@@ -330,6 +321,13 @@ namespace TUComparatorLibrary
                         Console.WriteLine(ex.Message);
                         cardsFailedToUpdate.Add(updateCardLines[0]);
                         continue;
+                    }
+
+                    // Read every skill line up front, so a typo fails the card before any XML is touched.
+                    List<SkillLine> skillLines = new List<SkillLine>();
+                    for (int j = 3; j < updateCardLines.Length; j++)
+                    {
+                        skillLines.Add(SkillLineTokenizer.Tokenize(updateCardLines[j], IsCardName));
                     }
 
                     for (int i = 0; i < cardXMLsToUpdate.Count; i++)
@@ -372,7 +370,7 @@ namespace TUComparatorLibrary
                         cardXmlToUpdate.Add(new XElement("health", Convert.ToInt32(Math.Max(Math.Floor(scalingFactor * health), 1))));
 
                         // remove the attack node, and replace it if needed.
-                        if (cardXmlToUpdate.XPathSelectElement("attack") != null)
+                        if (cardXmlToUpdate.XPathSelectElement("attack") != null && attack != -1)
                         {
                             cardXmlToUpdate.XPathSelectElement("attack")?.Remove();
 
@@ -382,11 +380,11 @@ namespace TUComparatorLibrary
                         List<XElement> outputSkills = new List<XElement>();
 
                         //For skills, it's not so simple.
-                        for (int j = 3; j < updateCardLines.Length; j++)
+                        foreach (SkillLine skillLine in skillLines)
                         {
-                            // the last X lines are skills.  Back-convert to the skill ID
+                            // the last X lines are skills, already converted to skill IDs.
                             // Base them off of the last card.
-                            outputSkills.Add(BuildSingleSkillXml(StandardizeInputString(updateCardLines[j]), scalingFactor, summonScalingFactor));
+                            outputSkills.Add(BuildSingleSkillXml(skillLine, scalingFactor, summonScalingFactor));
                         }
 
                         cardXmlToUpdate.XPathSelectElements("skill").Remove();
@@ -428,11 +426,11 @@ namespace TUComparatorLibrary
                             List<XElement> upgradeOutputSkills = new List<XElement>();
 
                             //For skills, it's not so simple.
-                            for (int l = 3; l < updateCardLines.Length; l++)
+                            foreach (SkillLine skillLine in skillLines)
                             {
-                                // the last X lines are skills.  Back-convert to the skill ID
+                                // the last X lines are skills, already converted to skill IDs.
                                 // Base them off of the last card.
-                                upgradeOutputSkills.Add(BuildSingleSkillXml(StandardizeInputString(updateCardLines[l]), scalingFactor, summonScalingFactor));
+                                upgradeOutputSkills.Add(BuildSingleSkillXml(skillLine, scalingFactor, summonScalingFactor));
                             }
 
                             upgrade.XPathSelectElements("skill").Remove();
@@ -453,6 +451,12 @@ namespace TUComparatorLibrary
                         fileForCardId.Add(cardToUpdate.id, cardToUpdate.fileIndex);
                     }
                 }
+                catch (FormatException ex)
+                {
+                    // Problems with what was typed in the update file - the message says what's wrong.
+                    Console.WriteLine($"Failed to parse {updateCardLines[0]}: {ex.Message}");
+                    cardsFailedToUpdate.Add(updateCardLines[0]);
+                }
                 catch (Exception ex)
                 {
                     Console.WriteLine(ex.Message);
@@ -463,7 +467,65 @@ namespace TUComparatorLibrary
 
             }
 
-            SaveCards(cardsFailedToUpdate, newXmls, fileForCardId);
+            SaveCards(cardsFailedToUpdate, newXmls, fileForCardId, warnings);
+        }
+
+        private bool IsCardName(string name)
+        {
+            return oldCardObjects.Any(x => x.name.Equals(name, StringComparison.InvariantCultureIgnoreCase));
+        }
+
+        /// <summary>
+        /// A "---" between two cards means the second is summoned by the first.  Warn if the first card's skills don't summon it.
+        /// </summary>
+        private void CheckSummonSeparators(List<UpdateBlock> updateCards, List<string> warnings)
+        {
+            for (int i = 0; i < updateCards.Count; i++)
+            {
+                UpdateBlock summoned = updateCards[i];
+
+                if (!summoned.SummonedByPrevious)
+                {
+                    continue;
+                }
+
+                if (i == 0)
+                {
+                    warnings.Add($"\"---\" before the first card ({summoned.Name}, line {summoned.StartLine}) - there is no card before it to summon it.");
+                    continue;
+                }
+
+                UpdateBlock summoner = updateCards[i - 1];
+                bool summons = false;
+
+                foreach (string line in summoner.Lines.Skip(3))
+                {
+                    try
+                    {
+                        SkillLine skillLine = SkillLineTokenizer.Tokenize(line, IsCardName);
+
+                        if (skillLine.SkillId == "summon" && skillLine.Tokens.Length > 1
+                            && skillLine.Tokens[1].Equals(summoned.Name, StringComparison.InvariantCultureIgnoreCase))
+                        {
+                            summons = true;
+                        }
+                    }
+                    catch (FormatException)
+                    {
+                        // bad skill lines are reported when that card is processed.
+                    }
+                }
+
+                if (!summons)
+                {
+                    warnings.Add($"{summoner.Name} is followed by \"---\" but doesn't summon {summoned.Name} (line {summoned.StartLine}).");
+                }
+            }
+
+            foreach (string warning in warnings)
+            {
+                Console.WriteLine($"WARNING: {warning}");
+            }
         }
 
         private void Initialize(ConfigStore config)
@@ -484,7 +546,7 @@ namespace TUComparatorLibrary
             Updater.fusionData = fusionDataDoc.XPathSelectElements("//root/fusion_recipe").ToList();
         }
 
-        private void SaveCards(List<string> cardsFailedToUpdate, Dictionary<int, XElement> newXmls, Dictionary<int, int> fileForCardId)
+        private void SaveCards(List<string> cardsFailedToUpdate, Dictionary<int, XElement> newXmls, Dictionary<int, int> fileForCardId, List<string>? warnings = null)
         {
             int cardsUpdated = 0;
 
@@ -536,6 +598,16 @@ namespace TUComparatorLibrary
             foreach (string failedCard in cardsFailedToUpdate)
             {
                 Console.WriteLine(failedCard);
+            }
+
+            if (warnings != null && warnings.Count > 0)
+            {
+                Console.WriteLine($"{warnings.Count} warning(s):");
+
+                foreach (string warning in warnings)
+                {
+                    Console.WriteLine($"WARNING: {warning}");
+                }
             }
         }
 
@@ -671,10 +743,10 @@ namespace TUComparatorLibrary
             return cardsToUpdate;
         }
 
-        private XElement BuildSingleSkillXml(string skillString, double scalingFactor, double summonScalingFactor)
+        private XElement BuildSingleSkillXml(SkillLine skillLine, double scalingFactor, double summonScalingFactor)
         {
             // get the card data to build
-            OutputSkillData skillData = ProcessSingleSkill(skillString, scalingFactor, summonScalingFactor);
+            OutputSkillData skillData = ProcessSingleSkill(skillLine, scalingFactor, summonScalingFactor);
 
             XElement newSkillXml = new XElement("skill");
 
@@ -728,39 +800,13 @@ namespace TUComparatorLibrary
             return newSkillXml;
         }
 
-        private string StandardizeInputString(string inputString)
+        private OutputSkillData ProcessSingleSkill(SkillLine skillLine, double scalingFactor, double summonScalingFactor)
         {
-            string workingString = inputString;
+            // Tokens are already normalised by SkillLineTokenizer: skill ids are lower case, factions are
+            // full names, "all"/"every"/"to" are lower case, and the trigger has been taken off the end.
+            string[] skillString = skillLine.Tokens;
 
-            // run the string through the standardization dictionary
-            foreach (string standardKey in standardizationDictionary.Keys)
-            {
-                workingString = workingString.Replace(standardKey, standardizationDictionary[standardKey], StringComparison.InvariantCultureIgnoreCase);
-            }
-
-            // run the string through the skill sheet, to convert everything to IDs.
-            foreach (XElement skillData in Updater.skillData)
-            {
-                string name = skillData.XPathSelectElement("name").Value;
-                string id = skillData.XPathSelectElement("id").Value;
-
-                if (name != null && id != null && !name.Equals("Attack", StringComparison.InvariantCultureIgnoreCase))
-                {
-                    workingString = workingString.Replace(name, id, StringComparison.InvariantCultureIgnoreCase);
-                }
-            }
-
-            return workingString;
-        }
-
-
-        private OutputSkillData ProcessSingleSkill(string fullSkillString, double scalingFactor, double summonScalingFactor)
-        {
-            string[] skillString = fullSkillString.Split(' ');
-
-            string skillId = skillString[0];
-
-            List<string> factionList = new List<string>() { "Imperial", "Raider", "Bloodthirsty", "Xeno", "Righteous", "Progenitor" };
+            string skillId = skillLine.SkillId;
 
             int? newValue = null;
             int? newFaction = null;
@@ -770,23 +816,12 @@ namespace TUComparatorLibrary
             string? newSkill2 = null;
             int? newNumber = null;
             Card summonCard = null;
-            string? newTrigger = null;
+            string? newTrigger = skillLine.Trigger;
 
             int? scaledValue = null;
             int? scaledNumber = null;
 
             int factionMod = 0;
-
-            // check the last part of the split for trigger words.
-            List<string> triggerWords = new List<string>() { "attacked", "play", "death" };
-
-            if (triggerWords.Contains(skillString[skillString.Length - 1]))
-            {
-                newTrigger = skillString[skillString.Length - 1];
-
-                // we got a trigger, truncate it so everything else doesn't break.
-                skillString = skillString.Take(skillString.Length - 1).ToArray();
-            }
 
             switch (skillId)
             {
@@ -860,10 +895,9 @@ namespace TUComparatorLibrary
 
                     factionMod = 0;
 
-                    if (factionList.Contains(skillString[1 + newAll.Value], StringComparer.OrdinalIgnoreCase))
+                    if (skillString.Length > 1 + newAll.Value && SkillLineTokenizer.IsFaction(skillString[1 + newAll.Value]))
                     {
-                        XElement faction = factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[1 + newAll.Value])).FirstOrDefault();
-                        newFaction = int.Parse(faction.XPathSelectElement("id").Value);
+                        newFaction = SkillLineTokenizer.GetFactionId(skillString[1 + newAll.Value]);
 
                         factionMod = 1;
                     }
@@ -926,10 +960,9 @@ namespace TUComparatorLibrary
                         newNumber = int.Parse(skillString[1]);
                     }
 
-                    if (skillString.Length >= 3 && factionList.Contains(skillString[2]))
+                    if (skillString.Length >= 3 && SkillLineTokenizer.IsFaction(skillString[2]))
                     {
-                        XElement faction = factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[2])).FirstOrDefault();
-                        newFaction = int.Parse(faction.XPathSelectElement("id").Value);
+                        newFaction = SkillLineTokenizer.GetFactionId(skillString[2]);
                     }
 
                     break;
@@ -951,10 +984,9 @@ namespace TUComparatorLibrary
                             {
                                 newAll = 1;
                             }
-                            else if (factionList.Contains(skillString[1]))
+                            else if (SkillLineTokenizer.IsFaction(skillString[1]))
                             {
-                                XElement faction = factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[1])).FirstOrDefault();
-                                newFaction = int.Parse(faction.XPathSelectElement("id").Value);
+                                newFaction = SkillLineTokenizer.GetFactionId(skillString[1]);
                             }
                             else
                             {
@@ -975,8 +1007,7 @@ namespace TUComparatorLibrary
                                 newNumber = int.Parse(skillString[1]);
                             }
 
-                            XElement factionDefault = factionData.Where(x => x.XPathSelectElement("name").Value.Equals(skillString[2])).FirstOrDefault();
-                            newFaction = int.Parse(factionDefault.XPathSelectElement("id").Value);
+                            newFaction = SkillLineTokenizer.GetFactionId(skillString[2]);
 
                             break;
                         default:
@@ -1020,36 +1051,31 @@ namespace TUComparatorLibrary
                     break;
                 // four (all, skill 1, skill 2, number)
                 case "evolve":
-                    switch (skillString.Length)
                     {
-                        case 3:
-                            // evolve skill1 to skill2
-                            // convert the skill to an ID
-                            newSkill = skillString[1];
+                        // Evolve [all/number] skill1 [to] skill2.  "to" is optional; skills are already converted to IDs.
+                        List<string> evolveParts = skillString.Skip(1).Where(x => x != "to").ToList();
 
-                            newSkill2 = skillString[3];
-
-                            break;
-                        case 4:
-                            // evolve number/all skill1 to skill2
-
-                            if (skillString[1].Equals("all", StringComparison.InvariantCultureIgnoreCase))
+                        if (evolveParts.Count == 3)
+                        {
+                            if (evolveParts[0] == "all")
                             {
                                 newAll = 1;
                             }
                             else
                             {
-                                newNumber = int.Parse(skillString[1]);
+                                newNumber = int.Parse(evolveParts[0]);
                             }
 
-                            // convert the skill to an ID
-                            newSkill = skillString[2];
+                            evolveParts.RemoveAt(0);
+                        }
 
-                            newSkill2 = skillString[4];
-                            break;
-                        default:
+                        if (evolveParts.Count != 2 || !SkillLineTokenizer.IsSkillId(evolveParts[0]) || !SkillLineTokenizer.IsSkillId(evolveParts[1]))
+                        {
+                            throw new FormatException("Evolve should look like \"Evolve [all/number] <skill> to <skill>\".");
+                        }
 
-                            break;
+                        newSkill = evolveParts[0];
+                        newSkill2 = evolveParts[1];
                     }
                     break;
                 // summon sucks
@@ -1072,6 +1098,11 @@ namespace TUComparatorLibrary
                     break;
                 // everything else just has one param, value
                 default:
+                    if (skillString.Length < 2)
+                    {
+                        throw new FormatException($"{skillId} needs a value, e.g. \"{skillId} 10\".");
+                    }
+
                     newValue = int.Parse(skillString[1]);
 
                     break;
