@@ -260,6 +260,14 @@ namespace TUComparatorLibrary
 
                     Card cardToUpdateRequest = oldCardObjects.Where(x => x.name.Equals(cardName)).FirstOrDefault();
 
+                    if (cardToUpdateRequest == null)
+                    {
+                        // Used to be skipped silently.  Fail it so it shows in the failed list.
+                        Card? differentCase = oldCardObjects.FirstOrDefault(x => x.name.Equals(cardName, StringComparison.InvariantCultureIgnoreCase));
+                        throw new FormatException($"Can't find a card named \"{cardName}\"."
+                            + (differentCase != null ? $" Did you mean \"{differentCase.name}\"? Names must match exactly, including capitals." : " Check the spelling."));
+                    }
+
                     try
                     {
                         cardsToUpdate = FindCardsToUpdateRecursive(cardToUpdateRequest);
@@ -289,10 +297,16 @@ namespace TUComparatorLibrary
 
                     foreach (Card cardToUpdate in cardsToUpdate)
                     {
-                        XElement cardXmlToUpdate = oldCardXmls[cardToUpdate.fileIndex - 1].XPathSelectElement($@"//unit[id='{cardToUpdate.id}']");
+                        // Work on a COPY.  The loaded file is only changed in SaveCards, and only for cards whose whole
+                        // fusion chain succeeded.  Editing in place left failed cards half-changed (upgrade levels
+                        // removed, new stats, old skills) and that damage was saved if anything else in the file changed.
+                        XElement cardXmlToUpdate = new XElement(oldCardXmls[cardToUpdate.fileIndex - 1].XPathSelectElement($@"//unit[id='{cardToUpdate.id}']")!);
 
                         cardXMLsToUpdate.Add(cardXmlToUpdate);
                     }
+
+                    // Finished copies for this chain.  Only added to newXmls once every tier has been built.
+                    Dictionary<int, XElement> chainXmls = new Dictionary<int, XElement>();
 
                     //parse the ending attack, health, and delay from the update file
                     string[] updateStats = updateCardLines[2].Split('/').Select(x => x.Trim()).ToArray();
@@ -480,9 +494,14 @@ namespace TUComparatorLibrary
                             cardXmlToUpdate.Add(upgrade);
                         }
 
-                        newXmls.Add(int.Parse(cardXmlToUpdate.XPathSelectElement("id").Value), cardXmlToUpdate);
+                        chainXmls.Add(int.Parse(cardXmlToUpdate.XPathSelectElement("id").Value), cardXmlToUpdate);
                     }
 
+                    // Every tier built - commit the chain.
+                    foreach (KeyValuePair<int, XElement> built in chainXmls)
+                    {
+                        newXmls.Add(built.Key, built.Value);
+                    }
 
                     // Add the file for card ID to the end?
                     foreach (Card cardToUpdate in cardsToUpdate)
@@ -655,7 +674,7 @@ namespace TUComparatorLibrary
                 }
             }
 
-            Console.WriteLine($"{cardsUpdated} updated.  The following cards failed to update:");
+            Console.WriteLine($"{fileForCardId.Count} cards updated in {cardsUpdated} files.  The following cards failed to update:");
 
             foreach (string failedCard in cardsFailedToUpdate)
             {
@@ -808,7 +827,16 @@ namespace TUComparatorLibrary
         private XElement BuildSingleSkillXml(SkillLine skillLine, double scalingFactor, double summonScalingFactor)
         {
             // get the card data to build
-            OutputSkillData skillData = ProcessSingleSkill(skillLine, scalingFactor, summonScalingFactor);
+            OutputSkillData skillData;
+            try
+            {
+                skillData = ProcessSingleSkill(skillLine, scalingFactor, summonScalingFactor);
+            }
+            catch (Exception ex) when (ex is FormatException || ex is IndexOutOfRangeException)
+            {
+                // e.g. "Enrage all 21 Xeno" (faction after the value) or "Strike" with no value
+                throw new FormatException($"Can't read skill line \"{skillLine.Original}\" - check the order and the numbers against the readme. ({ex.Message})", ex);
+            }
 
             XElement newSkillXml = new XElement("skill");
 

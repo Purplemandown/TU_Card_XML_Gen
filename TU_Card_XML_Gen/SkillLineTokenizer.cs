@@ -15,6 +15,10 @@ namespace TU_Card_XML_Gen
     {
         public string[] Tokens = Array.Empty<string>();
         public string? Trigger;
+
+        /// <summary>The line as typed, for error messages.</summary>
+        public string Original = string.Empty;
+
         public string SkillId => Tokens.Length > 0 ? Tokens[0] : string.Empty;
     }
 
@@ -106,7 +110,7 @@ namespace TU_Card_XML_Gen
                     tokens.Add(cardName);
                 }
 
-                return new SkillLine { Tokens = tokens.ToArray(), Trigger = trigger };
+                return new SkillLine { Tokens = tokens.ToArray(), Trigger = trigger, Original = line.Trim() };
             }
 
             for (int i = skillWordCount; i < words.Count;)
@@ -154,7 +158,7 @@ namespace TU_Card_XML_Gen
                 throw new FormatException($"Don't understand \"{words[i]}\" in line \"{line}\".");
             }
 
-            return new SkillLine { Tokens = tokens.ToArray(), Trigger = trigger };
+            return new SkillLine { Tokens = tokens.ToArray(), Trigger = trigger, Original = line.Trim() };
         }
 
         /// <summary>Returns the canonical faction name for a name or abbreviation (any case), or null.</summary>

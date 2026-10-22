@@ -348,8 +348,11 @@ not used. The XMLs are changed in place, as above.
 
   - Line 2 must exist even though it's ignored; skipping it makes the tool read
     your first skill as stats.
-  - Card names (line 1) are matched exactly and the first match wins, so a typo
-    means "Can't find a card with name ..." and that card is skipped.
+  - Card names (line 1) are matched exactly and the first match wins. A typo
+    fails the card with "Can't find a card named ...", and suggests the right
+    name if only the capitals are wrong.
+  - A card that fails is left exactly as it was in the XMLs, along with every
+    fusion tier the tool found for it. Fix the update file and run that card again.
   - A card can only be updated once per run. If a later card shares fusion tiers
     with an earlier one (e.g. Pure Benediction, then Holy Benediction), the later
     one fails without changing anything. Do them in separate runs.
@@ -378,3 +381,11 @@ CHANGES IN 1.6.0
   - A max value of 0 stays 0 at every level (it used to become 1).
   - A card that shares fusion tiers with an earlier card in the same run now
     fails cleanly; before, the shared tiers were left half-changed.
+  - A card that fails is no longer left half-changed. Before, a failed card could
+    lose all its upgrade levels and get new stats with old skills, and that was
+    saved if any other card in the same cards_section file was updated.
+  - A card name that isn't found now fails and is listed, instead of being
+    silently skipped (this happened with trailing spaces on the name line).
+  - Skill lines that can't be read now say which line.
+  - The summary counts cards as well as files ("15 cards updated in 10 files");
+    before, "10 updated" was the number of files.
