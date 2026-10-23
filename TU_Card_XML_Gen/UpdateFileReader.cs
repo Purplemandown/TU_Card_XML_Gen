@@ -18,7 +18,20 @@ namespace TU_Card_XML_Gen
         /// <summary>Tiered scaling set by a "// SCALE:" comment above this card, or null to use config.xml's setting.</summary>
         public TieredScaling? Scaling;
 
+        /// <summary>Set id from a "// SET: n" comment above this card (new cards only), or null for config.xml's.</summary>
+        public string? SetId;
+
+        /// <summary>From "// NEW: TRUE" / "// BUFF: TRUE" comments above this card.  Auto = decide from the lines.</summary>
+        public BlockKind Kind = BlockKind.Auto;
+
         public string Name => Lines.Count > 0 ? Lines[0] : string.Empty;
+    }
+
+    internal enum BlockKind
+    {
+        Auto,
+        New,
+        Buff
     }
 
     /// <summary>
@@ -32,12 +45,17 @@ namespace TU_Card_XML_Gen
     ///  - If the gap contains a "---" line, the next card is marked as summoned by the previous one.
     ///  - A "// SCALE: ..." comment sets tiered scaling for every card that starts after it
     ///    (including a card whose name line it's on), until the next SCALE comment.
+    ///  - "// SET: n" sets the set id of the new cards that follow (like CardBuilder's directive).
+    ///  - "// NEW: TRUE" / "// BUFF: TRUE" (or NEW / BUFF on their own) make the cards that follow new
+    ///    cards / buffs; "// NEW: AUTO" goes back to deciding from each card's lines.
     /// Works with both Windows (CRLF) and Unix (LF) line endings.
     /// </summary>
     internal static class UpdateFileReader
     {
         private static readonly Regex SummonSeparator = new Regex(@"^-{3,}$");
         private static readonly Regex ScaleDirective = new Regex(@"^\s*scale\s*:(.*)$", RegexOptions.IgnoreCase);
+        private static readonly Regex SetDirective = new Regex(@"^\s*set\s*:\s*(?<set>\d+)\s*$", RegexOptions.IgnoreCase);
+        private static readonly Regex KindDirective = new Regex(@"^\s*\[?\s*(?<kind>new|buff)\s*(?::\s*(?<value>true|false|auto))?\s*\]?\s*$", RegexOptions.IgnoreCase);
 
         public static List<UpdateBlock> Read(string path, TieredScaling configTiered)
         {
@@ -50,6 +68,8 @@ namespace TU_Card_XML_Gen
             UpdateBlock? current = null;
             bool gapHasSummonSeparator = false;
             TieredScaling? currentScaling = null;
+            string? currentSet = null;
+            BlockKind currentKind = BlockKind.Auto;
             int lineNumber = 0;
 
             foreach (string rawLine in rawLines)
@@ -60,7 +80,29 @@ namespace TU_Card_XML_Gen
 
                 if (hadComment)
                 {
-                    Match directive = ScaleDirective.Match(rawLine.Substring(rawLine.IndexOf("//", StringComparison.Ordinal) + 2));
+                    string commentText = rawLine.Substring(rawLine.IndexOf("//", StringComparison.Ordinal) + 2);
+
+                    Match setDirective = SetDirective.Match(commentText);
+                    if (setDirective.Success)
+                    {
+                        currentSet = setDirective.Groups["set"].Value;
+                        Console.WriteLine($"Line {lineNumber}: new cards that follow use set {currentSet}.");
+                    }
+
+                    Match kindDirective = KindDirective.Match(commentText);
+                    if (kindDirective.Success)
+                    {
+                        bool isNew = kindDirective.Groups["kind"].Value.Equals("new", StringComparison.OrdinalIgnoreCase);
+                        string value = kindDirective.Groups["value"].Success ? kindDirective.Groups["value"].Value.ToLowerInvariant() : "true";
+
+                        currentKind = value == "auto" ? BlockKind.Auto
+                            : (isNew == (value == "true")) ? BlockKind.New : BlockKind.Buff;
+
+                        Console.WriteLine($"Line {lineNumber}: the cards that follow are "
+                            + (currentKind == BlockKind.Auto ? "detected automatically (new cards have a Picture: line)" : currentKind == BlockKind.New ? "new cards" : "buffs") + ".");
+                    }
+
+                    Match directive = ScaleDirective.Match(commentText);
                     if (directive.Success)
                     {
                         try
@@ -103,7 +145,9 @@ namespace TU_Card_XML_Gen
                     {
                         StartLine = lineNumber,
                         SummonedByPrevious = gapHasSummonSeparator,
-                        Scaling = currentScaling
+                        Scaling = currentScaling,
+                        SetId = currentSet,
+                        Kind = currentKind
                     };
                     blocks.Add(current);
                     gapHasSummonSeparator = false;
