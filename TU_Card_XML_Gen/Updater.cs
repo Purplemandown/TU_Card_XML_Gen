@@ -8,7 +8,7 @@ namespace TUComparatorLibrary
     public class Updater
     {
 
-        string version = "1.6.0";
+        string version = "1.7.0";
         public static List<XElement> skillData;
         public static List<XElement> factionData;
         public static List<XElement> fusionData;

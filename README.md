@@ -1,8 +1,11 @@
 # TU_Card_XML_Gen
 
-Takes a plain-text **update file** describing new card stats and skills, and writes those changes into the Tyrant Unleashed card XMLs for you, including every fusion tier and every upgrade level, with stats scaled down automatically.
+Takes a plain-text **update file** and writes it into the Tyrant Unleashed card XMLs for you. One update file can mix two kinds of card:
 
-Current version: **1.6.0**. Requires the .NET 8 runtime.
+- **Buffs**: new stats and skills for *existing* cards, written into every fusion tier and every upgrade level, with stats scaled down automatically.
+- **New cards**: complete new cards (every level, ids, fusion recipes and pictures), built the same way as CardBuilder.ps1. See [New cards](#new-cards).
+
+Current version: **1.7.0**. Requires the .NET 8 runtime.
 
 - [Setup](#setup)
 - [Update file format](#update-file-format)
@@ -13,6 +16,8 @@ Current version: **1.6.0**. Requires the .NET 8 runtime.
 - [How scaling works](#how-scaling-works)
 - [Mass nerf poison](#mass-nerf-poison)
 - [Gotchas](#gotchas)
+- [New cards](#new-cards)
+- [Changes in 1.7.0](#changes-in-170)
 - [Changes in 1.6.0](#changes-in-160)
 
 ## Setup
@@ -26,15 +31,18 @@ Edit `config.xml` (it sits next to the exe), then run the exe.
 | `<PathToUpdateFile>` | Full path to your update file (standard operation only). |
 | `<AutoStats>` | `PercentAcrossTier` (default 15) and `PercentBetweenTiers` (default 5), used by autostats scaling. See [scaling](#how-scaling-works). |
 | `<Scaling>` | `<Mode>`: `autostats` (default) or `tiered`. `<Tiered>`: `FusionLevel0` (default `50..60`), `FusionLevel1` (`60..80`), `FusionLevel2` (`80..100`), `Summoned` (`50..100`). See [scaling](#how-scaling-works). |
+| `<NewCards>` | `SetId` (default `2500`), `SectionFile` (default `cards_section_21.xml`), `Label` (default: update file name + month). See [New cards](#new-cards). |
 | `<MassNerfPoisonConfig><Factor>` | Default `.4` (massnerfpoison only). |
 
-> **The card XMLs are changed in place.** The tool overwrites the `cards_section_N.xml` files that contain a changed card. If anything goes wrong, reset the XMLs by downloading them again in TUO.
+> **The card XMLs are changed in place.** The tool overwrites the `cards_section_N.xml` files that contain a changed card, and new cards add to `fusion_recipes_cj2.xml`. If anything goes wrong, reset the XMLs by downloading them again in TUO.
 
-The tool also creates an `output-<date-time>` folder next to the exe with one small XML per updated card (`<card name>.xml`), handy for review and for the update you send to Kongregate.
+The tool also creates an `output-<date-time>` folder next to the exe with one small XML per updated or new card (`<card name>.xml`), plus `new_cards_recipes.xml` and `new_cards_summary.txt` for new cards. Handy for review and for the update you send to Kongregate.
 
 At the end the console lists any cards that **failed to update** and any **warnings**. Read it.
 
 ## Update file format
+
+This section and the ones up to [Gotchas](#gotchas) are about **buffs** (changing existing cards). New cards use CardBuilder's format; see [New cards](#new-cards).
 
 Each card is a block of lines:
 
@@ -260,6 +268,94 @@ Set `<Operation>massnerfpoison</Operation>`. Every card whose max level has Pois
 - A card that fails is left exactly as it was in the XMLs, along with every fusion tier the tool found for it. Fix the update file and run that card again.
 - A card can only be updated once per run. If a later card shares fusion tiers with an earlier one (e.g. Pure Benediction, then Holy Benediction), the later one fails without changing anything. Do them in separate runs.
 - `Jam 4` is four targets, not "every 4".
+
+## New cards
+
+New cards are built the way **CardBuilder.ps1** (player mode) builds them: same input format, same level curves, ids, recipes and pictures. The output was checked against CardBuilder on the same input. PowerShell isn't needed.
+
+### New or buff?
+
+A block is a **new card** if it has a `Picture:`, `Replace Picture:`, `Upgrades:`, `Set:` or `Fusion Recipe:` line (every new card needs `Picture:`). Anything else is a buff. To say it outright for the cards that follow:
+
+| Comment | Effect |
+|---|---|
+| `// NEW: TRUE` | the cards below are new cards |
+| `// BUFF: TRUE` | the cards below are buffs |
+| `// NEW: AUTO` | back to deciding from each card's lines |
+
+`// NEW` and `// BUFF` on their own work too. New cards are built before the buffs, so a buff or a summon in the same file can refer to a new card.
+
+### The card block
+
+```text
+Nexor's Eye                      // name, or "A / B / C" for a fusing chain
+Xeno Vindicator                  // Faction Rarity [Structure] [Fusion0|1|2]
+17/30/2                          // attack/health/cost   (Structure: health/cost)
+Evade 5                          // skills, in any order
+Avenge 17
+Leech 22
+Upgrades: 5                      // optional, default 5 (= 6 levels). Chain: 3 / 5 / 0
+Set: 9500                        // optional, this card's set
+Fusion Recipe: Card A[12345], Card B[23456]     // optional
+Picture: tick_lv3:137            // REQUIRED: file[:bundle]
+Replace Picture: Old Card[4321]: other_lv1:99   // optional, repeatable
+```
+
+- Factions: Imperial, Raider, Bloodthirsty, Xeno, Righteous, Progenitor. Rarities: Epic, Legendary, Vindicator, Mythic.
+- `Commander` or `Dominion` on line 2 builds a Structure, with a warning that it needs editing by hand (COMDEV doesn't create player Commanders or Dominions).
+- Order: skills and `Upgrades:`/`Set:` first, then `Fusion Recipe:`, then `Picture:`, then `Replace Picture:` lines. Nothing else may follow `Picture:`.
+- `// SET: n` between cards sets the set for the new cards after it. Otherwise the set is `<NewCards><SetId>` (2500), or the card's own `Set:` line.
+- Comments, blank lines, `---`, spaces and capitals work as for buffs.
+
+### Numbers are the ceiling
+
+The attack, health and skill numbers are for the card's highest tier at max level. Every level gets a share of them, rounded **up** (0 stays 0). Cost is never scaled.
+
+| Card | Level 1 .. max level |
+|---|---|
+| Fusion 2, or a card with a `Fusion Recipe:` | 80% .. 100% |
+| Fusion 1 | 60% .. 80% |
+| Fusion 0 | 50% .. 60% |
+| Standalone / summoned (no recipe, no `FusionN`) | 50% .. 100% |
+
+A chain `A / B / C` is tiers 0, 1 and 2 (two names = tiers 1 and 2), and each later card gets a recipe of 2x the previous card's max-level id. A one-level card (`Upgrades: 0`) gets the curve's first value (e.g. 50% for a standalone card). `// SCALE:` comments only affect buffs.
+
+### Skills on new cards
+
+Mostly the same as [buffs](#skill-syntax), with CardBuilder's rules:
+
+- Most skills: `<Skill> [n | all] [faction] <value>`, e.g. `Sunder 3 15` (3 targets), `Protect all Righteous 25`. Only mend/fortify, heal, protect, entrap, rally, enrage, evolve, enhance, overload and rush can carry a faction.
+- `Jam [n | all] [every c]`: c counts **down** from c+4 at level 1 to c at max; n counts **up** from 1 to n. `Flurry [x] [every c]`: x stays the same at every level.
+- `Enhance [n | all] <skill> <value>`, `Overload [n | all] [faction]`, `Evolve [n] <skill> [to] <skill>` (no `all` on new cards).
+- `Summon <card name>`: a card in this file or an existing card. Level N of a single card summons level N; over a chain the summoned card's levels are spread evenly.
+- `Wall`, `Flying`: no value. Triggers can be written as for [buffs](#triggers).
+- Skills are put in COMDEV's standard order for you (the console says so).
+- A card is **not** built if it has a skill twice (Siege + Mortar count), or both of Payback/Revenge, Valor/Bravery, Mend/Fortify or Weaken/Sunder.
+
+### Ids, recipes and pictures
+
+- Ids come from the "Lowest ID available" header in `cards_section_21.xml` (`<NewCards><SectionFile>`). Each card takes `Upgrades`+1 ids in a row from the Assault or Structure pool, and the header is moved on.
+- The new cards are added at the end of that section file, between `<!-- label -->` and `<!-- End of label -->` comments.
+- Recipes are added to `fusion_recipes_cj2.xml` the same way; the rest of that file is left exactly as it was.
+- `Fusion Recipe:` resources must be **max-level** ids. You get a warning when an id is a base id, isn't found, or mixes the Base Fusion and Chain families.
+- `Replace Picture:` changes the base picture (and bundle, with a DOUBLE CHECK warning) of that existing card. To find free pictures and the `Replace Picture:` lines to go with them, run CardBuilder's `GetAvailablePictures.ps1`.
+
+### Safety checks
+
+Because the XMLs are changed in place:
+
+- A new card whose name already exists is **not built**, so running the same update file twice can't add the cards twice. (To start over, re-download the XMLs.)
+- If any id it would use is already taken, **no new cards are built**: the header is out of date.
+- A `Summon` of a card that isn't in the file or the game data fails the card, instead of writing `card_id="PENDING"`.
+- A card that fails takes no ids, and the cards after it still build.
+
+Not supported: mission cards (CardBuilder `-UseMissionSet`), real Commanders and Dominions, and finding pictures (use `GetAvailablePictures.ps1`).
+
+## Changes in 1.7.0
+
+- **New cards**: complete player cards built in the same run as buffs, ported from CardBuilder.ps1 and checked against it.
+- `// NEW: TRUE`, `// BUFF: TRUE`, `// NEW: AUTO` and `// SET: n` comments.
+- Differences from CardBuilder: `Upgrades: 0` on a single card makes one level (CardBuilder makes 6), and names with `&` or `<` are written as valid XML.
 
 ## Changes in 1.6.0
 
