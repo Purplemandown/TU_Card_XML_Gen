@@ -50,6 +50,20 @@
 				<Summoned>50..100</Summoned>
 			</Tiered>
 		</Scaling>
+		<NewCards>
+			<!--
+		NEW CARDS: blocks in the update file with a Picture: line (or after "// NEW: TRUE") are built
+		as complete new cards, the way CardBuilder does: every level, an id block from the section
+		file's "Lowest ID available" header, fusion recipes and picture replacements.
+		SetId: set for new cards, unless the card has a Set: line or a "// SET: n" comment applies.
+		SectionFile: the section file that receives new cards and holds the next-id header.
+		Label: written as a comment around the new cards and recipes.  Leave empty to use the
+		update file's name and the month, e.g. "updatefile - October 2026".
+		-->
+			<SetId>2500</SetId>
+			<SectionFile>cards_section_21.xml</SectionFile>
+			<Label></Label>
+		</NewCards>
 	</StandardOperationConfig>
 	<MassNerfPoisonConfig>
 		<Factor>.4</Factor>

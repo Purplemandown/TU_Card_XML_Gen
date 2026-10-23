@@ -1,6 +1,7 @@
 ﻿using System.Xml.Linq;
 using System.Xml.XPath;
 using TU_Card_XML_Gen;
+using TU_Card_XML_Gen.NewCards;
 
 namespace TUComparatorLibrary
 {
@@ -236,7 +237,38 @@ namespace TUComparatorLibrary
 
             CheckSummonSeparators(updateCards, warnings);
 
-            foreach (UpdateBlock updateCard in updateCards)
+            // New cards (a Picture: line, or after "// NEW: TRUE") are built first, so buffs and summons in the same
+            // file can refer to them.  Everything else is a buff of an existing card.
+            List<UpdateBlock> newCardBlocks = new List<UpdateBlock>();
+            List<UpdateBlock> buffBlocks = new List<UpdateBlock>();
+
+            foreach (UpdateBlock block in updateCards)
+            {
+                bool looksNew = NewCardParser.LooksLikeNewCard(block.Lines);
+                BlockKind kind = block.Kind == BlockKind.Auto ? (looksNew ? BlockKind.New : BlockKind.Buff) : block.Kind;
+
+                if (kind == BlockKind.Buff && looksNew)
+                {
+                    Console.WriteLine($"Failed to parse {block.Name}: it has new-card lines (Picture:, Set:, Upgrades:, Fusion Recipe:) but \"// BUFF\" is in effect. Remove those lines, or put \"// NEW: TRUE\" (or \"// NEW: AUTO\") above it.");
+                    cardsFailedToUpdate.Add(block.Name);
+                    continue;
+                }
+
+                (kind == BlockKind.New ? newCardBlocks : buffBlocks).Add(block);
+            }
+
+            Console.WriteLine($"{newCardBlocks.Count} new card(s), {buffBlocks.Count} buff(s).");
+
+            NewCardsOutcome? newCards = NewCardStep.Run(newCardBlocks, oldCardXmls, oldCardObjects, config, updateFilePath);
+            if (newCards != null)
+            {
+                cardsFailedToUpdate.AddRange(newCards.Failed);
+                warnings.AddRange(newCards.Warnings);
+                Console.WriteLine();
+                Console.WriteLine($"=== Buffs: {buffBlocks.Count} card(s) ===");
+            }
+
+            foreach (UpdateBlock updateCard in buffBlocks)
             {
                 // the card name should be the first line
                 string[] updateCardLines = updateCard.Lines.ToArray();
@@ -526,7 +558,7 @@ namespace TUComparatorLibrary
 
             }
 
-            SaveCards(cardsFailedToUpdate, newXmls, fileForCardId, warnings);
+            SaveCards(cardsFailedToUpdate, newXmls, fileForCardId, warnings, newCards);
         }
 
         /// <summary>True while the current card uses tiered scaling, which rounds to nearest instead of down.</summary>
@@ -627,7 +659,7 @@ namespace TUComparatorLibrary
             Updater.fusionData = fusionDataDoc.XPathSelectElements("//root/fusion_recipe").ToList();
         }
 
-        private void SaveCards(List<string> cardsFailedToUpdate, Dictionary<int, XElement> newXmls, Dictionary<int, int> fileForCardId, List<string>? warnings = null)
+        private void SaveCards(List<string> cardsFailedToUpdate, Dictionary<int, XElement> newXmls, Dictionary<int, int> fileForCardId, List<string>? warnings = null, NewCardsOutcome? newCards = null)
         {
             int cardsUpdated = 0;
 
@@ -643,6 +675,12 @@ namespace TUComparatorLibrary
                     {
                         hasUpdate = true;
                     }
+                }
+
+                // new cards added, or a picture replaced, in this file
+                if (newCards != null && newCards.TouchedFileIndexes.Contains(i + 1))
+                {
+                    hasUpdate = true;
                 }
 
                 if (hasUpdate)
@@ -674,7 +712,14 @@ namespace TUComparatorLibrary
                 }
             }
 
-            Console.WriteLine($"{fileForCardId.Count} cards updated in {cardsUpdated} files.  The following cards failed to update:");
+            if (newCards != null && newCards.Units.Count > 0)
+            {
+                SaveNewCards(newCards);
+            }
+
+            Console.WriteLine($"{fileForCardId.Count} cards updated"
+                + (newCards != null ? $" and {newCards.Units.Count} new cards added" : string.Empty)
+                + $" in {cardsUpdated} files.  The following cards failed to update:");
 
             foreach (string failedCard in cardsFailedToUpdate)
             {
@@ -690,6 +735,29 @@ namespace TUComparatorLibrary
                     Console.WriteLine($"WARNING: {warning}");
                 }
             }
+        }
+
+        /// <summary>
+        /// New cards: recipes go into the fusion recipes file (its own formatting kept), and a copy of every new
+        /// card, the recipes and a summary go into the output folder for review.
+        /// </summary>
+        private void SaveNewCards(NewCardsOutcome newCards)
+        {
+            if (newCards.Recipes.Count > 0)
+            {
+                string recipesPath = $@"{oldXmlDirectory}//fusion_recipes_cj2.xml";
+                NewCardStep.AppendRecipesToFile(recipesPath, newCards.Recipes, newCards.Label);
+                Console.WriteLine($"fusion_recipes_cj2.xml: {newCards.Recipes.Count} new recipe(s) added.");
+            }
+
+            foreach (XElement unit in newCards.Units)
+            {
+                string fileName = string.Concat(unit.Element("name")!.Value.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+                File.WriteAllText($"{outputDirectory}//{fileName}.xml", unit.ToString());
+            }
+
+            File.WriteAllText($"{outputDirectory}//new_cards_recipes.xml", new XElement("root", newCards.Recipes).ToString());
+            File.WriteAllLines($"{outputDirectory}//new_cards_summary.txt", newCards.Summary.Concat(newCards.Warnings.Select(w => "WARNING: " + w)));
         }
 
         private void LoadOldCards(string oldXmlDirectory)
