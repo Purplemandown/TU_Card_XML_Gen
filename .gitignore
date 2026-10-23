@@ -361,3 +361,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+output*/
+/TU_Card_XML_Gen.code-workspace
+/config.xml
+/updatefile.txt
