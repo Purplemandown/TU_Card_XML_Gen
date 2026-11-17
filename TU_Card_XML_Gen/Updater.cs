@@ -9,7 +9,7 @@ namespace TUComparatorLibrary
     public class Updater
     {
 
-        public const string Version = "1.8.0";
+        public const string Version = "1.9.0";
         public static List<XElement> skillData;
         public static List<XElement> factionData;
         public static List<XElement> fusionData;
@@ -455,6 +455,34 @@ namespace TUComparatorLibrary
                             ? $"  Scaling: tiered, summoned card {tiered.Summoned}"
                             : "  Scaling: tiered, " + string.Join(", ", cardsToUpdate.Select((c, s) => $"{c.name} {tiered.FusionLevels[rangeIndex[s]]}")));
 
+                    // c (cooldown) and n (targets) follow the card's current design unless the update changes them
+                    // (see CountAndCooldown).  Read every stage's levels before anything is changed.
+                    List<List<List<XElement>>> oldLevels = cardXMLsToUpdate.Select(CountAndCooldown.EffectiveLevels).ToList();
+                    List<XElement> typedSkills = skillLines.Select(l => BuildSingleSkillXml(l, 1.0, 1.0)).ToList();
+                    CountAndCooldown countAndCooldown = new CountAndCooldown(typedSkills, oldLevels.Last().Last());
+                    foreach (string note in countAndCooldown.Notes)
+                    {
+                        Console.WriteLine("  " + note);
+                    }
+
+                    // Set 4750 is retired: a buffed 4750 card moves to 4500, unless "// SET: 4750" applies to it.
+                    foreach (XElement stage in cardXMLsToUpdate)
+                    {
+                        XElement? setNode = stage.Element("set");
+                        if (setNode != null && setNode.Value.Trim() == "4750")
+                        {
+                            if (updateCard.SetId == "4750")
+                            {
+                                Console.WriteLine($"  {stage.Element("name")?.Value} stays in set 4750 (// SET: 4750).");
+                            }
+                            else
+                            {
+                                setNode.Value = "4500";
+                                Console.WriteLine($"  {stage.Element("name")?.Value}: set 4750 -> 4500.");
+                            }
+                        }
+                    }
+
                     for (int i = 0; i < cardXMLsToUpdate.Count; i++)
                     {
                         // get the card (can't foreach because we need to key on the index)
@@ -518,6 +546,9 @@ namespace TUComparatorLibrary
                             outputSkills.Add(BuildSingleSkillXml(skillLine, scalingFactor, summonScalingFactor));
                         }
 
+                        int stageFromTop = (cardXMLsToUpdate.Count - 1) - i;
+                        countAndCooldown.Apply(outputSkills, oldLevels[i][0], stageFromTop, 1, upgrades.Count + 1);
+
                         cardXmlToUpdate.XPathSelectElements("skill").Remove();
 
                         cardXmlToUpdate.Add(outputSkills.ToArray());
@@ -568,6 +599,8 @@ namespace TUComparatorLibrary
                                 // Base them off of the last card.
                                 upgradeOutputSkills.Add(BuildSingleSkillXml(skillLine, scalingFactor, summonScalingFactor));
                             }
+
+                            countAndCooldown.Apply(upgradeOutputSkills, oldLevels[i][Math.Min(k + 1, oldLevels[i].Count - 1)], stageFromTop, k + 2, upgrades.Count + 1);
 
                             upgrade.XPathSelectElements("skill").Remove();
 

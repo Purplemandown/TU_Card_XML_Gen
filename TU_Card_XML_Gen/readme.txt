@@ -1,4 +1,4 @@
-TU_Card_XML_Gen  (v1.8.0)
+TU_Card_XML_Gen  (v1.9.0)
 =========================
 
 Takes a plain-text "update file" and writes it into the Tyrant Unleashed card XMLs
@@ -235,6 +235,32 @@ SKILL ORDER
 
   REORDERSKILLS works the same as REORDER, "// REORDER" on its own means TRUE,
   and brackets are allowed ("// [REORDER: FALSE]").
+
+COOLDOWN (c), TARGETS (n) AND SET 4750 (buffs)
+  Skill values (x), attack and health are scaled as in section 6; c and n are not.
+
+  c (Jam and Flurry "every c"). c=1 is the same as no c.
+  - Same c as the card has now (top card, max level): every level keeps its c.
+  - Different c: each card in the chain counts down from c+4 at level 1 to the
+    new c at its max level (as for new cards), e.g. every 2 = 6 5 4 4 3 2.
+
+  n (Jam, Overload, Enrage, Evolve, ...). n=1 is the same as no n.
+  - Same n (or all) as the card has now: every level keeps what it has.
+  - Different n: the "n-3" ladder. Counting cards from the top of the chain,
+    the top card has n-1 on its levels and n on its last two, the card below
+    n-2 and n-1, and so on, never below 1. all counts as 5 (5 and up = all):
+
+      Jam 2              111111  111111  111122
+      Jam 3              111111  111122  222233
+      Jam 4              111122  222233  333344
+      Jam all (was n)    222233  333344  4444,all,all
+
+    Switching between one target and all (Rally -> Rally all) keeps that
+    choice on every level.
+  The console says which rule each skill got, e.g. "jam: c 3 -> 2, c+4 rule".
+
+  Set 4750 is retired: a buffed set 4750 card moves to set 4500 (the console
+  says so), unless "// SET: 4750" is above it in the update file.
 
 
 -----------------------------------------------------------------------
@@ -513,7 +539,8 @@ Mostly the same as buffs (section 3), with CardBuilder's rules:
   - Skills are put in COMDEV's standard order for you (the console says so),
     unless "// REORDER: FALSE" applies (see SKILL ORDER in section 2).
   - A card is NOT built if it has a skill twice (Siege + Mortar count), or both of
-    Payback/Revenge, Valor/Bravery, Mend/Fortify or Weaken/Sunder.
+    Payback/Revenge, Valor/Bravery, Mend/Fortify, Weaken/Sunder,
+    Poison/Venom, Siege/Mortar, Pierce/Rupture or Swipe/Drain.
 
 IDS, RECIPES AND PICTURES
   - Ids come from the "Lowest ID available" header in cards_section_21.xml
@@ -568,8 +595,9 @@ What it checks:
     number of skills didn't change) or "nothing new took its place"; the cost
     changed (from and to); upgrade levels were lost; the name changed.
   - A level that lists its skills but leaves one out.
-  - The same skill twice; Payback+Revenge, Valor+Bravery, Mend+Fortify or
-    Weaken+Sunder together; a faction on a skill that can't carry one; all and n
+  - The same skill twice; two skills that never go on one card
+    (Payback/Revenge, Valor/Bravery, Mend/Fortify, Weaken/Sunder,
+    Poison/Venom, Siege/Mortar, Pierce/Rupture or Swipe/Drain); a faction on a skill that can't carry one; all and n
     together; a Summon with no real card id.
   - Skills not in COMDEV's standard order, on any level, with the order they
     should be in.
@@ -590,6 +618,15 @@ This works for files changed by any tool, including older versions of this one.
 
 
 -----------------------------------------------------------------------
+CHANGES IN 1.9.0
+  - Cooldown and targets on buffs: an unchanged c or n keeps the card's own
+    per-level values; a changed c uses the c+4 rule, a changed n the n-3 ladder
+    (see COOLDOWN (c), TARGETS (n) AND SET 4750 in section 2). Before, the typed
+    c was copied to every level and n was scaled like a skill value.
+  - Buffed set 4750 cards move to set 4500, unless "// SET: 4750" applies.
+  - Skills that never go on one card now also include Poison/Venom,
+    Siege/Mortar, Pierce/Rupture and Swipe/Drain.
+
 CHANGES IN 1.8.0
 -----------------------------------------------------------------------
 

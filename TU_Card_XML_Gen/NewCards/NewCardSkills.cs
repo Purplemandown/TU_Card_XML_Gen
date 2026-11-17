@@ -69,6 +69,10 @@ namespace TU_Card_XML_Gen.NewCards
             new[] { "valor", "bravery" },
             new[] { "mend", "fortify" },
             new[] { "weaken", "sunder" },
+            new[] { "poison", "venom" },
+            new[] { "siege", "besiege" },
+            new[] { "pierce", "rupture" },
+            new[] { "swipe", "drain" },
         };
 
         public static readonly HashSet<string> FactionValidSkills = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

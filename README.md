@@ -5,7 +5,7 @@ Takes a plain-text **update file** and writes it into the Tyrant Unleashed card 
 - **Buffs**: new stats and skills for *existing* cards, written into every fusion tier and every upgrade level, with stats scaled down automatically.
 - **New cards**: complete new cards (every level, ids, fusion recipes and pictures), built the same way as CardBuilder.ps1. See [New cards](#new-cards).
 
-Current version: **1.8.0**. Requires the .NET 8 runtime.
+Current version: **1.9.0**. Requires the .NET 8 runtime.
 
 - [Setup](#setup)
 - [Update file format](#update-file-format)
@@ -19,6 +19,8 @@ Current version: **1.8.0**. Requires the .NET 8 runtime.
 - [Gotchas](#gotchas)
 - [New cards](#new-cards)
 - [Review page](#review-page)
+- [Cooldown (c), targets (n) and set 4750](#cooldown-c-targets-n-and-set-4750)
+- [Changes in 1.9.0](#changes-in-190)
 - [Changes in 1.8.0](#changes-in-180)
 - [Changes in 1.7.0](#changes-in-170)
 - [Changes in 1.6.0](#changes-in-160)
@@ -301,6 +303,31 @@ To keep the order you typed for some cards, put a directive above them. It appli
 
 `REORDERSKILLS` works the same as `REORDER`, `// REORDER` on its own means `TRUE`, and brackets are allowed (`// [REORDER: FALSE]`).
 
+## Cooldown (c), targets (n) and set 4750
+
+These apply to buffs. Skill values (`x`), attack and health are scaled as described above; `c` and `n` are not.
+
+**Cooldown `c`** (Jam and Flurry, "every c"). `c` = 1 is the same as no `c`.
+- If the update's `c` is the same as the card's current `c` (at the top card's max level), every level keeps the `c` it has now.
+- If it's different, each card in the chain counts down from `c`+4 at level 1 to the new `c` at its max level (the same rule as new cards), e.g. `every 2` gives 6 5 4 4 3 2.
+
+**Targets `n`** (Jam, Overload, Enrage, Evolve, ...). `n` = 1 is the same as no `n`.
+- If the update's `n` (or `all`) is the same as the card's current one, every level keeps what it has now.
+- If it's different, the "n-3" ladder is used. Counting cards from the top of the chain, the top card has `n`-1 on its levels and `n` on its last two levels, the card below `n`-2 and `n`-1, and so on, never below 1. `all` counts as 5, so 5 and up become `all`:
+
+| Update | Base card | Fusion 1 | Fusion 2 |
+|---|---|---|---|
+| `Jam 2` | 1 1 1 1 1 1 | 1 1 1 1 1 1 | 1 1 1 1 2 2 |
+| `Jam 3` | 1 1 1 1 1 1 | 1 1 1 1 2 2 | 2 2 2 2 3 3 |
+| `Jam 4` | 1 1 1 1 2 2 | 2 2 2 2 3 3 | 3 3 3 3 4 4 |
+| `Jam all` (was a number) | 2 2 2 2 3 3 | 3 3 3 3 4 4 | 4 4 4 4 all all |
+
+  Switching a skill between one target and `all` (e.g. `Rally` to `Rally all`) keeps that choice on every level.
+
+The console says which rule each skill got, e.g. `jam: c 3 -> 2, c+4 rule` or `jam: n unchanged (2), each level keeps its current n`.
+
+**Set 4750** is retired: a buffed card in set 4750 is moved to set 4500 (the console says so), unless `// SET: 4750` is above it in the update file.
+
 ## Mass nerf poison
 
 Set `<Operation>massnerfpoison</Operation>`. Every card whose max level has Poison gets Poison multiplied by `<Factor>` on every level, rounded **up**. The update file isn't used. The XMLs are changed in place, as above.
@@ -374,7 +401,7 @@ Mostly the same as [buffs](#skill-syntax), with CardBuilder's rules:
 - `Summon <card name>`: a card in this file or an existing card. Level N of a single card summons level N; over a chain the summoned card's levels are spread evenly.
 - `Wall`, `Flying`: no value. Triggers can be written as for [buffs](#triggers).
 - Skills are put in COMDEV's standard order for you (the console says so), unless `// REORDER: FALSE` applies. See [Skill order](#skill-order).
-- A card is **not** built if it has a skill twice (Siege + Mortar count), or both of Payback/Revenge, Valor/Bravery, Mend/Fortify or Weaken/Sunder.
+- A card is **not** built if it has a skill twice (Siege + Mortar count), or both of Payback/Revenge, Valor/Bravery, Mend/Fortify, Weaken/Sunder, Poison/Venom, Siege/Mortar, Pierce/Rupture or Swipe/Drain.
 
 ### Ids, recipes and pictures
 
@@ -408,7 +435,7 @@ A card that breaks a rule gets a ⚠ next to its name, and the cell at fault (a 
 | Values by level | Attack, HP, or a skill's x or n **drops** between levels, or one level sticks out (a big jump then a dip); a cooldown (c) going **up** |
 | Cost | Outside 0–4 |
 | Compared with before the run | A skill the card had is gone, and which new skill seems to have replaced it (same slot, or the next new skill when the number of skills didn't change), or *nothing new took its place* (catches a skill left out of the update file by mistake); cost changed (from and to); upgrade levels lost; name changed |
-| Skills | A level that lists its skills but leaves one out; the same skill twice; Payback+Revenge, Valor+Bravery, Mend+Fortify or Weaken+Sunder together; a faction on a skill that can't carry one; `all` and `n` together; a Summon with no real card id; skills not in COMDEV's standard order on any level (with the order they should be in) |
+| Skills | A level that lists its skills but leaves one out; the same skill twice; two skills that never go on one card (Payback/Revenge, Valor/Bravery, Mend/Fortify, Weaken/Sunder, Poison/Venom, Siege/Mortar, Pierce/Rupture or Swipe/Drain); a faction on a skill that can't carry one; `all` and `n` together; a Summon with no real card id; skills not in COMDEV's standard order on any level (with the order they should be in) |
 | Card kind | Id range says Structure but the card has attack, or Commander but it has attack or cost; no picture; no health at level 1 |
 | Fusion recipes | A resource that isn't the max-level id; a 2x-fused card whose level 1 is weaker than the max level of the card it's fused from |
 
@@ -422,6 +449,12 @@ Filters at the top: **Only cards with warnings** and **Only changed cards**.
 2. **Compare with before…**: the same file from before the update (for example a fresh TUO download you kept). Changed cards get a CHANGED badge, lost skills or levels are flagged, and **Only changed cards** shows just those.
 
 This works for files changed by any tool, including older versions of this one.
+
+## Changes in 1.9.0
+
+- **Cooldown and targets on buffs**: an unchanged `c` or `n` keeps the card's own per-level values; a changed `c` uses the `c`+4 rule and a changed `n` the n-3 ladder. Before, the typed `c` was copied to every level and `n` was scaled like a skill value. See [Cooldown (c), targets (n) and set 4750](#cooldown-c-targets-n-and-set-4750).
+- **Set 4750 → 4500** on buffed cards, unless `// SET: 4750` applies.
+- Skills that never go on one card now also include Poison/Venom, Siege/Mortar, Pierce/Rupture and Swipe/Drain (new cards and the review page).
 
 ## Changes in 1.8.0
 

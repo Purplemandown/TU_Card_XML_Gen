@@ -18,7 +18,7 @@ namespace TU_Card_XML_Gen
         /// <summary>Tiered scaling set by a "// SCALE:" comment above this card, or null to use config.xml's setting.</summary>
         public TieredScaling? Scaling;
 
-        /// <summary>Set id from a "// SET: n" comment above this card (new cards only), or null for config.xml's.</summary>
+        /// <summary>Set id from a "// SET: n" comment above this card, or null for config.xml's.  New cards use it; for a buff only "4750" matters (keeps a set 4750 card in 4750).</summary>
         public string? SetId;
 
         /// <summary>From "// NEW: TRUE" / "// BUFF: TRUE" comments above this card.  Auto = decide from the lines.</summary>
@@ -93,7 +93,7 @@ namespace TU_Card_XML_Gen
                     if (setDirective.Success)
                     {
                         currentSet = setDirective.Groups["set"].Value;
-                        Console.WriteLine($"Line {lineNumber}: new cards that follow use set {currentSet}.");
+                        Console.WriteLine($"Line {lineNumber}: new cards that follow use set {currentSet}." + (currentSet == "4750" ? " Buffed set 4750 cards that follow stay in 4750." : string.Empty));
                     }
 
                     Match kindDirective = KindDirective.Match(commentText);

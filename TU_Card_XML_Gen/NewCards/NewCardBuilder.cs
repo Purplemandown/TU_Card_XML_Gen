@@ -389,7 +389,7 @@ namespace TU_Card_XML_Gen.NewCards
         /// <summary>Round up; a typed 0 stays 0.</summary>
         public static int Scale(double raw, double factor) => raw == 0 ? 0 : (int)Math.Ceiling(raw * factor);
 
-        private static int LinearScaled(double start, double end, int level, int maxLevel)
+        internal static int LinearScaled(double start, double end, int level, int maxLevel)
         {
             if (maxLevel <= 1)
             {
