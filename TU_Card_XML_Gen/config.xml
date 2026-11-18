@@ -1,13 +1,36 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <root>
 	<Operation>standard</Operation>
+	<!-- After every run, review.html (in that run's results folder) shows the changed and new cards with rule
+	     checks. true = open it in the browser automatically; false = just write it. -->
+	<OpenReviewPage>true</OpenReviewPage>
 	<!-- VALID OPERATIONS: 
 	<Operation>standard</Operation>
 	<Operation>massnerfpoison</Operation>
 	-->
+	<!-- FOLDERS: relative paths here and below start at the "main folder", the folder this config.xml is in.
+	     Data:    your update files (the default update file is data\updatefile.txt).
+	     Results: one folder per run, named by date and time, with review.html and a copy of every card changed.
+	     Logs:    everything the tool prints, one file per day (yyyy-MM-dd.log); runs on the same day are added to it.
+	     CleanupMonths: at the start of each run, anything in these three folders that hasn't changed for this many
+	     months is deleted. 0 = never delete. The update file in use is always kept, and a folder that holds the
+	     game data (PathToCardXMLs, or any cards_section files) is never cleaned. -->
+	<Folders>
+		<Data>data</Data>
+		<Results>results</Results>
+		<Logs>logs</Logs>
+		<CleanupMonths>3</CleanupMonths>
+	</Folders>
 	<PathToCardXMLs>C:\Users\purpl\OneDrive\Documents\TU_Test</PathToCardXMLs>
 	<StandardOperationConfig>
-		<PathToUpdateFile>C:\Users\purpl\OneDrive\Documents\TU_Test\updatefile.txt</PathToUpdateFile>
+		<PathToUpdateFile>data\updatefile.txt</PathToUpdateFile>
+		<!-- ReorderSkills: true = put every card's skills into COMDEV's standard order (the order CardBuilder uses:
+		     on-play skills first, then flying, evade, ... on-attacked skills after subdue, on-death skills last).
+		     false = keep the order typed in the update file (a note says what the standard order would be).
+		     The update file can change this for the cards that follow with
+		       // REORDER: TRUE    // REORDER: FALSE    // REORDER: AUTO  (back to this setting)
+		     REORDERSKILLS works too. -->
+		<ReorderSkills>true</ReorderSkills>
 		<AutoStats>
 			<!-- 
 		WHAT THESE MEAN:
@@ -37,8 +60,10 @@
 
 		TIERED: each fusion level gets a range of the max values you type.  Level 1 of that
 		tier gets the first number, the tier's max level gets the second, levels between are
-		spread evenly.  FusionLevel0 is the base card, FusionLevel1 its first fusion, and so on;
-		higher fusion levels use the last one listed.  Summoned cards (after a line of three or
+		spread evenly.  A card uses the range for its own fusion level (the top card's
+		<fusion_level>, none = 0, counting down the chain).  A four-stage commander scales its
+		last three stages and leaves the first unchanged; add a fourth range (FusionLevel0..3,
+		the first being for that extra lowest stage) to scale it too.  Summoned cards (after a line of three or
 		more dashes in the update file, or in set 9500) use Summoned on every tier.
 		Values round to the nearest whole number, minimum 1.  A max of 0 stays 0 at every level.
 		-->
@@ -50,6 +75,20 @@
 				<Summoned>50..100</Summoned>
 			</Tiered>
 		</Scaling>
+		<NewCards>
+			<!--
+		NEW CARDS: blocks in the update file with a Picture: line (or after "// NEW: TRUE") are built
+		as complete new cards, the way CardBuilder does: every level, an id block from the section
+		file's "Lowest ID available" header, fusion recipes and picture replacements.
+		SetId: set for new cards, unless the card has a Set: line or a "// SET: n" comment applies.
+		SectionFile: the section file that receives new cards and holds the next-id header.
+		Label: written as a comment around the new cards and recipes.  Leave empty to use the
+		update file's name and the month, e.g. "updatefile - October 2026".
+		-->
+			<SetId>2500</SetId>
+			<SectionFile>cards_section_21.xml</SectionFile>
+			<Label></Label>
+		</NewCards>
 	</StandardOperationConfig>
 	<MassNerfPoisonConfig>
 		<Factor>.4</Factor>

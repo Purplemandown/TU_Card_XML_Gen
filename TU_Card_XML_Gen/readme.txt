@@ -1,9 +1,13 @@
-TU_Card_XML_Gen  (v1.6.0)
+TU_Card_XML_Gen  (v1.9.0)
 =========================
 
-Takes a plain-text "update file" describing new card stats and skills, and writes
-those changes into the Tyrant Unleashed card XMLs for you, including every fusion
-tier and every upgrade level, with stats scaled down automatically.
+Takes a plain-text "update file" and writes it into the Tyrant Unleashed card XMLs
+for you. It does two things, and one update file can mix them:
+
+  - BUFFS: new stats and skills for EXISTING cards, written into every fusion tier
+    and every upgrade level, with stats scaled down automatically (sections 2-8).
+  - NEW CARDS: complete new cards - every level, ids, fusion recipes and pictures -
+    built the same way as CardBuilder.ps1 (section 9).
 
 Requires the .NET 8 runtime.
 
@@ -12,7 +16,31 @@ Requires the .NET 8 runtime.
 1. SETUP
 -----------------------------------------------------------------------
 
-Edit config.xml (it sits next to the exe):
+FOLDERS
+The "main folder" is the folder config.xml is in (the tool looks for config.xml
+in the folder you run it from, then next to the exe). Under it:
+
+    config.xml
+    data\      your update files (default update file: data\updatefile.txt)
+    results\   one folder per run, named by date and time (e.g.
+               results\2026-10-23-11-10-05) with review.html and a copy of every
+               changed or new card
+    logs\      everything the tool prints, one file per day (2026-10-23.log);
+               later runs on the same day are added to the end
+
+The folders are made for you. Their names and places are set in config.xml
+under <Folders>; a relative path there (or in PathToCardXMLs and
+PathToUpdateFile) starts at the main folder.
+
+CLEANUP
+At the start of every run, anything directly inside data, results and logs that
+hasn't changed for <CleanupMonths> months (default 3) is DELETED, and the
+console and log list what was removed. 0 = never delete. The update file in
+use and today's log are always kept, and a folder that is, holds or contains
+the game data (PathToCardXMLs or any cards_section file), the main folder, or a
+folder above it, is never cleaned.
+
+Edit config.xml:
 
   <Operation>         standard        - normal run: apply the update file
                       massnerfpoison  - multiply Poison on every card by a factor
@@ -23,7 +51,11 @@ Edit config.xml (it sits next to the exe):
                         skills_set.xml
                         fusion_recipes_cj2.xml
 
-  <PathToUpdateFile>  Full path to your update file (standard operation only).
+  <PathToUpdateFile>  Your update file (standard operation only). Default
+                      data\updatefile.txt; a full path also works.
+
+  <Folders>           <Data> data, <Results> results, <Logs> logs,
+                      <CleanupMonths> 3 (see FOLDERS and CLEANUP above).
 
   <AutoStats>         Percentages for autostats scaling (see section 6).
     <PercentAcrossTier>    default 15
@@ -37,6 +69,18 @@ Edit config.xml (it sits next to the exe):
       <FusionLevel2>         default 80..100
       <Summoned>             default 50..100
 
+  <NewCards>          Settings for new cards (see section 9):
+    <SetId>                default 2500
+    <SectionFile>          default cards_section_21.xml
+    <Label>                default: update file name + month
+
+  <OpenReviewPage>    true (default) = open review.html in the browser after each
+                      run; false = only write it (see section 10)
+
+  <ReorderSkills>     (inside StandardOperationConfig) true (default) = put every
+                      card's skills into COMDEV's standard order; false = keep
+                      the order typed (see SKILL ORDER in section 2)
+
   <MassNerfPoisonConfig><Factor>   default .4 (massnerfpoison only)
 
 Then run the exe.
@@ -45,20 +89,25 @@ Then run the exe.
 NOTE - THE CARD XMLs ARE CHANGED IN PLACE
 
 The tool overwrites the cards_section_N.xml files in PathToCardXMLs. Only files
-containing a changed card are rewritten. If anything goes wrong, reset the XMLs by
-downloading them again in TUO.
+containing a changed card are rewritten. New cards also add to
+fusion_recipes_cj2.xml. If anything goes wrong, reset the XMLs by downloading them
+again in TUO.
 
-It also creates a folder next to the exe called output-<date-time> containing one
-small XML per updated card (<card name>.xml). Those are handy for review and for
-pasting into the update you send to Kongregate.
+Each run's results folder (results\<date-time>) holds one small XML per updated
+or new card (<card name>.xml), review.html, and for new cards
+new_cards_recipes.xml and new_cards_summary.txt. Those are handy for review and
+for pasting into the update you send to Kongregate.
 
 At the end the console lists any cards that failed to update, and any warnings.
-Read it.
+Read it. Then check the REVIEW PAGE that opens in your browser (section 10).
 
 
 -----------------------------------------------------------------------
 2. UPDATE FILE FORMAT
 -----------------------------------------------------------------------
+
+This section, and sections 3-8, are about BUFFS (changing existing cards). New
+cards use CardBuilder's format - see section 9.
 
 Each card is a block of lines:
 
@@ -155,12 +204,67 @@ STATS (line 3) - these are the MAX stats (see section 6 for how they scale):
 SKILLS (line 4+)
   - The skills you list REPLACE all existing skills on the card, on every tier and
     level. List every skill the card should have, not just the changed ones.
-  - Skills are written to the XML in the order you list them.
+  - Skills are put into COMDEV's standard order for you (see SKILL ORDER below);
+    the console shows the change.
   - Values are the MAX values; lower levels and tiers scale down (section 6).
   - Nothing is case-sensitive: skill names, "all", "every", factions and triggers
     can be written in any case ("RALLY ALL rt 100 On Attacked" is fine).
   - A word the tool doesn't recognise (e.g. a misspelt skill) makes that card FAIL
     with a message saying which word, rather than writing bad XML.
+
+SKILL ORDER
+  Every card's skills (buffs and new cards) are written in COMDEV's standard
+  order, the one CardBuilder uses: on-play skills first, then flying, evade,
+  revenge/payback, tribute, absorb, barrier, stasis, armored, wall, allegiance,
+  avenge, scavenge, subdue, on-attacked skills, counter, corrosive, poison,
+  inhibit, sabotage, disease, bravery/valor, summon, evolve, enhance, overload,
+  rush, fortify/mend, heal, protect, entrap, rally, enrage, enfeeble, strike, jam,
+  sunder/weaken, besiege, mimic, legion, coalition, venom, pierce, hunt, drain,
+  leech, berserk, mark, flurry, refresh, and on-death skills last. Skills the
+  table doesn't know go at the end. When the order changes, the console says:
+
+    Skills reordered: stasis, legion, enrage (on attacked)  ->  stasis, enrage (on attacked), legion
+
+  To keep the order you typed, put a comment above the cards. It applies to
+  every card after it, until the next one:
+
+    // REORDER: TRUE     skills put into standard order
+    // REORDER: FALSE    skills kept in the order typed (the console still says
+                         what the standard order would be)
+    // REORDER: AUTO     back to <ReorderSkills> in config.xml (default: reorder)
+
+  REORDERSKILLS works the same as REORDER, "// REORDER" on its own means TRUE,
+  and brackets are allowed ("// [REORDER: FALSE]").
+
+COOLDOWN (c), TARGETS (n) AND SET 4750 (buffs)
+  Skill values (x), attack and health are scaled as in section 6; c and n are not.
+
+  c (Jam and Flurry "every c"). c=1 is the same as no c.
+  - Same c as the card has now (top card, max level): every level keeps its c,
+    unless c is the same on every level of the chain; then it counts down too.
+  - Different c: counts down evenly over the whole chain, from c+4 at the base
+    card's level 1 to the new c at the top card's max level, so no level or
+    fusion is worse than the one before. every 2 on a three-card chain:
+    666555 544443 333222; on a single 6-level card: 6 5 4 4 3 2.
+
+  n (Jam, Overload, Enrage, Evolve, ...). n=1 is the same as no n.
+  - Same n (or all) as the card has now: every level keeps what it has.
+  - Different n: the "n-3" ladder. Counting cards from the top of the chain,
+    the top card has n-1 on its levels and n on its last two, the card below
+    n-2 and n-1, and so on, never below 1. all counts as 5 (5 and up = all):
+
+      Jam 2              111111  111111  111122
+      Jam 3              111111  111122  222233
+      Jam 4              111122  222233  333344
+      Jam all (was n)    222233  333344  4444,all,all
+
+    Switching between one target and all is a change too: Rally -> Rally all
+    gets the ladder (222233 333344 4444,all,all); Strike all -> Strike gives one
+    target on every level. A skill new to the card counts as changed.
+  The console says which rule each skill got, e.g. "jam: c 3 -> 2, c+4 rule".
+
+  Set 4750 is retired: a buffed set 4750 card moves to set 4500 (the console
+  says so), unless "// SET: 4750" is above it in the update file.
 
 
 -----------------------------------------------------------------------
@@ -300,9 +404,15 @@ Defaults:
     Fusion level 2                  80% .. 100% of max
     Summoned card (every tier)      50% .. 100% of max
 
-  - Fusion levels are counted up from the base card: fusion level 0 is the card
-    with no fusion recipe, 1 is made from it, and so on. Fusion levels above the
-    last range use the last range.
+  - Each card uses the range for ITS OWN fusion level, read from the top card's
+    <fusion_level> (none = 0) and counting down the chain. So a lone Fusion 2
+    card such as Revenant gets 80..100, and a normal 3-card chain gets 0, 1, 2.
+  - Four-stage commanders (Epic, Legendary, Fusion 1, Fusion 2, e.g. Malika /
+    Malika / Vengeful Malika / Insurgent Malika): the last three stages are
+    scaled and the FIRST STAGE IS LEFT UNCHANGED (the console says so). To scale
+    it too, give four ranges (FusionLevel0..FusionLevel3 in config.xml, or four
+    in // SCALE:): the first is then for that extra lowest stage, and the last
+    three stay fusion levels 0, 1, 2.
   - A "summoned card" is one that comes right after a "---" in the update file,
     or one in set 9500.
   - Results round to the NEAREST whole number (halves round up).
@@ -357,6 +467,214 @@ not used. The XMLs are changed in place, as above.
     with an earlier one (e.g. Pure Benediction, then Holy Benediction), the later
     one fails without changing anything. Do them in separate runs.
   - "Jam 4" is four targets, not "every 4".
+
+
+-----------------------------------------------------------------------
+9. NEW CARDS
+-----------------------------------------------------------------------
+
+New cards are built the way CardBuilder.ps1 (player mode) builds them: same input
+format, same level curves, ids, recipes and pictures. The output was checked
+against CardBuilder on the same input. PowerShell is not needed.
+
+NEW OR BUFF?
+A block is a NEW card if it has a Picture:, Replace Picture:, Upgrades:, Set: or
+Fusion Recipe: line (every new card needs Picture:). Anything else is a buff.
+To say it outright for the cards that follow:
+
+    // NEW: TRUE        the cards below are new cards
+    // BUFF: TRUE       the cards below are buffs
+    // NEW: AUTO        back to deciding from each card's lines
+
+("// NEW" and "// BUFF" on their own work too.) New cards are built before the
+buffs, so a buff or a summon in the same file can refer to a new card.
+
+THE CARD BLOCK
+
+    Nexor's Eye                      name, or "A / B / C" for a fusing chain
+    Xeno Vindicator                  Faction Rarity [Structure] [Fusion0|1|2]
+    17/30/2                          attack/health/cost   (Structure: health/cost)
+    Evade 5                          skills (any order - see below)
+    Avenge 17
+    Leech 22
+    Upgrades: 5                      optional, default 5 (= 6 levels). Chain: 3 / 5 / 0
+    Set: 9500                        optional, this card's set
+    Fusion Recipe: Card A[12345], Card B[23456]     optional
+    Picture: tick_lv3:137            REQUIRED: file[:bundle]
+    Replace Picture: Old Card[4321]: other_lv1:99   optional, repeatable
+
+  - Factions: Imperial, Raider, Bloodthirsty, Xeno, Righteous, Progenitor.
+    Rarities: Epic, Legendary, Vindicator, Mythic.
+  - "Commander" or "Dominion" on line 2 builds a Structure, with a warning that it
+    needs editing by hand (COMDEV doesn't create player Commanders/Dominions).
+  - Order: skills and Upgrades:/Set: first, then Fusion Recipe:, then Picture:,
+    then Replace Picture: lines. Nothing else may follow Picture:.
+  - "// SET: n" between cards sets the set for the new cards after it. Otherwise
+    the set is config.xml <NewCards><SetId> (2500), or the card's own Set: line.
+  - Comments, blank lines, "---", spaces and capitals work as for buffs.
+
+NUMBERS ARE THE CEILING
+The attack, health and skill numbers are for the card's highest tier at max level.
+Every level gets a share of them, rounded UP (0 stays 0); cost is never scaled:
+
+    Fusion 2, or a card with a Fusion Recipe:   80% .. 100%
+    Fusion 1                                     60% .. 80%
+    Fusion 0                                     50% .. 60%
+    Standalone / summoned (no recipe, no FusionN) 50% .. 100%
+
+A chain "A / B / C" is tiers 0, 1, 2 (two names = tiers 1, 2); each later card gets
+a recipe of 2x the previous card's max-level id. A one-level card (Upgrades: 0)
+gets the curve's first value (e.g. 50% for a standalone card).
+// SCALE: comments only affect buffs.
+
+SKILLS ON NEW CARDS
+Mostly the same as buffs (section 3), with CardBuilder's rules:
+  - Most skills: <Skill> [n | all] [faction] <value>   e.g. Sunder 3 15 (3 targets),
+    Protect all Righteous 25. Only mend/fortify, heal, protect, entrap, rally,
+    enrage, evolve, enhance, overload and rush can carry a faction.
+  - Jam [n | all] [every c]: c counts DOWN from c+4 at level 1 to c at max;
+    n counts UP from 1 to n.  In a chain, c runs over the whole chain and n uses
+    the n-3 ladder, as for buffs (Jam 3 every 2: c 666555 544443 333222,
+    n 111111 111122 222233; Jam all: n 222233 333344 4444,all,all).
+    Flurry [x] [every c]: x stays the same at every level.
+  - Enhance [n | all] <skill> <value>.  Overload [n | all] [faction].
+  - Evolve [n] <skill> [to] <skill>  (no "all" on new cards).
+  - Summon <card name>: a card in this file or an existing card. Level N of a single
+    card summons level N; over a chain the summoned card's levels are spread evenly.
+  - Wall, Flying: no value.
+  - Triggers can be written as for buffs (section 4).
+  - Skills are put in COMDEV's standard order for you (the console says so),
+    unless "// REORDER: FALSE" applies (see SKILL ORDER in section 2).
+  - A card is NOT built if it has a skill twice (Mortar = Besiege;
+    Siege is a different skill), or both of
+    Payback/Revenge, Valor/Bravery, Mend/Fortify, Weaken/Sunder,
+    Poison/Venom, Siege/Mortar, Pierce/Rupture or Swipe/Drain.
+
+IDS, RECIPES AND PICTURES
+  - Ids come from the "Lowest ID available" header in cards_section_21.xml
+    (<NewCards><SectionFile>). Each card takes Upgrades+1 ids in a row, from the
+    Assault or Structure pool, and the header is moved on.
+  - The new cards are added at the end of that section file, between
+    <!-- label --> and <!-- End of label --> comments.
+  - Recipes are added to fusion_recipes_cj2.xml the same way; the rest of that file
+    is left exactly as it was.
+  - Fusion Recipe: resources must be MAX-level ids. You get a warning when an id is
+    a base id, isn't found, or mixes the Base Fusion and Chain families.
+  - Replace Picture: changes the base picture (and bundle, with a DOUBLE CHECK
+    warning) of that existing card. To find free pictures and the Replace Picture:
+    lines to go with them, run CardBuilder's GetAvailablePictures.ps1.
+
+SAFETY CHECKS (because the XMLs are changed in place)
+  - A new card whose name already exists is NOT built. Running the same update file
+    twice therefore can't add the cards twice. (To start over, re-download the XMLs.)
+  - If any id it would use is already taken, NO new cards are built: the header is
+    out of date.
+  - A Summon of a card that isn't in the file or the game data fails the card,
+    instead of writing card_id="PENDING".
+  - A card that fails takes no ids, and the cards after it still build.
+
+NOT SUPPORTED: mission cards (CardBuilder -UseMissionSet), real Commanders and
+Dominions, and finding pictures (use GetAvailablePictures.ps1).
+
+
+-----------------------------------------------------------------------
+10. REVIEW PAGE (review.html)
+-----------------------------------------------------------------------
+
+After every run the tool writes review.html into that run's results folder
+and opens it in your browser (turn that off with <OpenReviewPage>false). It is
+the Card XML Viewer showing only the cards this run CHANGED or CREATED, each
+compared with the same card from before the run.
+
+Any card that breaks a rule gets a warning triangle next to its name, and the
+cell at fault (a level's HP, a skill, the cost, an id) gets one too. Hover over a
+triangle to see why. Amber = worth a look, red = almost certainly wrong.
+
+What it checks:
+  - Skill count isn't 3 at max level (a heads-up only - some cards have more or
+    fewer).
+  - Level ids aren't one per level, in a row; levels out of order; a missing id.
+  - Attack, HP, or a skill's x or n DROPS between levels, or one level sticks out
+    (a big jump then a dip = probably a typo). A cooldown (c) going UP.
+  - Cost outside 0-4.
+  - Compared with before the run: a skill the card had is gone (this is what
+    catches a skill left out of the update file by mistake), with the new skill
+    that seems to have replaced it (same slot, or the next new skill when the
+    number of skills didn't change) or "nothing new took its place"; the cost
+    changed (from and to); upgrade levels were lost; the name changed.
+  - A level that lists its skills but leaves one out.
+  - The same skill twice; two skills that never go on one card
+    (Payback/Revenge, Valor/Bravery, Mend/Fortify, Weaken/Sunder,
+    Poison/Venom, Siege/Mortar, Pierce/Rupture or Swipe/Drain); a faction on a skill that can't carry one; all and n
+    together; a Summon with no real card id.
+  - Skills not in COMDEV's standard order, on any level, with the order they
+    should be in.
+  - The id range says Structure but the card has attack, or Commander but it
+    has attack or cost; no picture; no health at level 1.
+  - Fusion recipes: a resource that isn't the max-level id, and a 2x-fused card
+    whose level 1 is weaker than the max level of the card it's fused from.
+
+Filters at the top: "Only cards with warnings" and "Only changed cards".
+
+THE VIEWER ON ITS OWN
+CardXmlViewer.html (next to the exe) is the same page for any XML files:
+  1. Open XML File(s): e.g. a cards_section file after an update.
+  2. Compare with before...: the same file from before the update (e.g. a fresh
+     TUO download you kept). Changed cards get a CHANGED badge and lost skills or
+     levels are flagged; tick "Only changed cards" to see just those.
+This works for files changed by any tool, including older versions of this one.
+
+
+-----------------------------------------------------------------------
+CHANGES IN 1.9.0
+  - Cooldown and targets on buffs: an unchanged c or n keeps the card's own
+    per-level values; a changed c uses the c+4 rule, a changed n the n-3 ladder
+    (see COOLDOWN (c), TARGETS (n) AND SET 4750 in section 2). Before, the typed
+    c was copied to every level and n was scaled like a skill value.
+  - Buffed set 4750 cards move to set 4500, unless "// SET: 4750" applies.
+  - New-card chains: Jam/Flurry c runs over the whole chain and Jam n uses the
+    n-3 ladder, instead of restarting on each card.
+  - New cards keep Siege as Siege (it used to be turned into Mortar/Besiege).
+  - Skills that never go on one card now also include Poison/Venom,
+    Siege/Mortar, Pierce/Rupture and Swipe/Drain.
+
+CHANGES IN 1.8.0
+-----------------------------------------------------------------------
+
+  - Review page: review.html opens after every run with the changed and new cards,
+    their before versions and rule checks (section 10). <OpenReviewPage> turns the
+    automatic opening off.
+  - The Card XML Viewer is included as CardXmlViewer.html, with the same checks
+    and a "Compare with before..." button.
+  - Tiered scaling: each card uses the range for its own fusion level (from the
+    top card's <fusion_level>), so lone Fusion 2 cards (e.g. Revenant) get
+    80..100 instead of 50..60, and Base Fusion pairs (e.g. Stag Beetle ->
+    Forsaken Beetle) get 60..80 / 80..100. Four-stage commanders leave their
+    first stage unchanged unless four ranges are given.
+  - Skill order: skills are put into COMDEV's standard order on buffs too (new
+    cards already were). <ReorderSkills> and "// REORDER: TRUE | FALSE | AUTO"
+    (or REORDERSKILLS) control it.
+  - Review checks: a gone skill says what replaced it, cost changes show from and
+    to, and the skill-order check covers every level and says what the order
+    should be.
+  - Standard folders under the main folder: data (update files), results (one
+    folder per run) and logs (one log per day, runs appended). Set in <Folders>.
+  - Cleanup: data, results and logs older than <CleanupMonths> (3) months are
+    deleted at the start of each run.
+  - config.xml is found in the current folder or next to the exe; relative paths
+    in it start at its folder. "Press any key" no longer crashes when the input is
+    redirected.
+
+
+-----------------------------------------------------------------------
+CHANGES IN 1.7.0
+-----------------------------------------------------------------------
+
+  - New cards: complete player cards built in the same run as buffs (section 9),
+    ported from CardBuilder.ps1 and checked against it.
+  - "// NEW: TRUE", "// BUFF: TRUE", "// NEW: AUTO" and "// SET: n" comments.
+  - Differences from CardBuilder: "Upgrades: 0" on a single card makes one level
+    (CardBuilder makes 6), and names with & or < are written as valid XML.
 
 
 -----------------------------------------------------------------------

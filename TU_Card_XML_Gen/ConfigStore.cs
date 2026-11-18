@@ -68,6 +68,25 @@ namespace TU_Card_XML_Gen
                 throw new Exception($"Can't parse StandardOperationConfig/Scaling: {e.Message}");
             }
 
+            // Optional: settings for building new cards.  Missing elements use CardBuilder's defaults.
+            XElement? newCards = config.XPathSelectElement("StandardOperationConfig/NewCards");
+            NewCardsSetId = newCards?.XPathSelectElement("SetId")?.Value.Trim() is { Length: > 0 } setId ? setId : "2500";
+            NewCardsSectionFile = newCards?.XPathSelectElement("SectionFile")?.Value.Trim() is { Length: > 0 } section ? section : "cards_section_21.xml";
+            NewCardsLabel = newCards?.XPathSelectElement("Label")?.Value.Trim() is { Length: > 0 } label ? label : null;
+
+            // Optional: write review.html after each run (always) and open it in the browser (default true).
+            string? openReview = config.XPathSelectElement("OpenReviewPage")?.Value.Trim();
+            OpenReviewPage = string.IsNullOrEmpty(openReview) || !new[] { "false", "0", "no", "off" }.Contains(openReview.ToLowerInvariant());
+
+            // Optional: put skills into COMDEV's standard order (default true).  "// REORDER:" in the update file overrides it.
+            string? reorder = config.XPathSelectElement("StandardOperationConfig/ReorderSkills")?.Value.Trim();
+            ReorderSkills = string.IsNullOrEmpty(reorder) || !new[] { "false", "0", "no", "off" }.Contains(reorder.ToLowerInvariant());
+
+            if (!int.TryParse(NewCardsSetId, out _))
+            {
+                throw new Exception($"StandardOperationConfig/NewCards/SetId must be a number, not \"{NewCardsSetId}\".");
+            }
+
             try
             {
                 MassNerfFactor =decimal.Parse(config.XPathSelectElement("MassNerfPoisonConfig/Factor")?.Value);
@@ -114,6 +133,21 @@ namespace TU_Card_XML_Gen
             AutoStats = 0,
             Tiered = 1
         };
+
+        /// <summary>Set id for new cards unless a card has a Set: line or a "// SET:" comment applies (default 2500).</summary>
+        public string NewCardsSetId { get; private set; } = "2500";
+
+        /// <summary>Section file that receives new cards and holds the "Lowest ID available" header.</summary>
+        public string NewCardsSectionFile { get; private set; } = "cards_section_21.xml";
+
+        /// <summary>Label written around the new cards and recipes; null = update file name + month.</summary>
+        public string? NewCardsLabel { get; private set; }
+
+        /// <summary>Open review.html in the browser when a run finishes.</summary>
+        public bool OpenReviewPage { get; private set; } = true;
+
+        /// <summary>Put each card's skills into COMDEV's standard order, unless "// REORDER: FALSE" applies.</summary>
+        public bool ReorderSkills { get; private set; } = true;
 
         public decimal MassNerfFactor;
         public UpdaterOperation Operation { get; private set; }

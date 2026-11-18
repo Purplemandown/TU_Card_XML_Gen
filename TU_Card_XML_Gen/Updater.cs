@@ -1,13 +1,15 @@
 ﻿using System.Xml.Linq;
 using System.Xml.XPath;
 using TU_Card_XML_Gen;
+using TU_Card_XML_Gen.NewCards;
+using TU_Card_XML_Gen.Review;
 
 namespace TUComparatorLibrary
 {
     public class Updater
     {
 
-        string version = "1.6.0";
+        public const string Version = "1.9.0";
         public static List<XElement> skillData;
         public static List<XElement> factionData;
         public static List<XElement> fusionData;
@@ -85,16 +87,26 @@ namespace TUComparatorLibrary
             "death" //trigger
         };
 
-        private string outputDirectory = $"output-{DateTime.Now.ToString("yyyy-MM-dd-hh-mm-ss")}";
+        /// <summary>This run's folder inside the results folder, e.g. results\2026-10-23-11-10-05.</summary>
+        private string outputDirectory = string.Empty;
 
         private ConfigStore config;
 
-        public void Run(string oldXmlDirectory, string updateFilePath, ConfigStore config)
+        /// <summary>Title for review.html: the update file's name, or the operation.</summary>
+        private string reviewTitle = "Update";
+
+        public void Run(string oldXmlDirectory, string updateFilePath, ConfigStore config, string resultsFolder)
         {
-            Console.WriteLine($"Running TU_Card_XML_Gen version {version}");
+            outputDirectory = Path.Combine(resultsFolder, DateTime.Now.ToString("yyyy-MM-dd-HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture));
+
+            Console.WriteLine($"Running TU_Card_XML_Gen version {Version}");
+            Console.WriteLine($"Results for this run: {Path.GetFullPath(outputDirectory)}");
             Console.WriteLine($"Operation: {config.Operation}");
 
             this.oldXmlDirectory = oldXmlDirectory;
+            reviewTitle = config.Operation == ConfigStore.UpdaterOperation.Standard
+                ? Path.GetFileNameWithoutExtension(updateFilePath)
+                : config.Operation.ToString();
 
             Initialize(config);
 
@@ -236,7 +248,38 @@ namespace TUComparatorLibrary
 
             CheckSummonSeparators(updateCards, warnings);
 
-            foreach (UpdateBlock updateCard in updateCards)
+            // New cards (a Picture: line, or after "// NEW: TRUE") are built first, so buffs and summons in the same
+            // file can refer to them.  Everything else is a buff of an existing card.
+            List<UpdateBlock> newCardBlocks = new List<UpdateBlock>();
+            List<UpdateBlock> buffBlocks = new List<UpdateBlock>();
+
+            foreach (UpdateBlock block in updateCards)
+            {
+                bool looksNew = NewCardParser.LooksLikeNewCard(block.Lines);
+                BlockKind kind = block.Kind == BlockKind.Auto ? (looksNew ? BlockKind.New : BlockKind.Buff) : block.Kind;
+
+                if (kind == BlockKind.Buff && looksNew)
+                {
+                    Console.WriteLine($"Failed to parse {block.Name}: it has new-card lines (Picture:, Set:, Upgrades:, Fusion Recipe:) but \"// BUFF\" is in effect. Remove those lines, or put \"// NEW: TRUE\" (or \"// NEW: AUTO\") above it.");
+                    cardsFailedToUpdate.Add(block.Name);
+                    continue;
+                }
+
+                (kind == BlockKind.New ? newCardBlocks : buffBlocks).Add(block);
+            }
+
+            Console.WriteLine($"{newCardBlocks.Count} new card(s), {buffBlocks.Count} buff(s).");
+
+            NewCardsOutcome? newCards = NewCardStep.Run(newCardBlocks, oldCardXmls, oldCardObjects, config, updateFilePath);
+            if (newCards != null)
+            {
+                cardsFailedToUpdate.AddRange(newCards.Failed);
+                warnings.AddRange(newCards.Warnings);
+                Console.WriteLine();
+                Console.WriteLine($"=== Buffs: {buffBlocks.Count} card(s) ===");
+            }
+
+            foreach (UpdateBlock updateCard in buffBlocks)
             {
                 // the card name should be the first line
                 string[] updateCardLines = updateCard.Lines.ToArray();
@@ -361,6 +404,22 @@ namespace TUComparatorLibrary
                         skillLines.Add(SkillLineTokenizer.Tokenize(updateCardLines[j], IsCardName));
                     }
 
+                    // COMDEV's standard skill order (CardBuilder's table).  On by default; "// REORDER: FALSE" keeps the typed order.
+                    List<SkillLine> standardOrder = TU_Card_XML_Gen.NewCards.NewCardSkills.InStandardOrder(skillLines, x => x.SkillId, x => x.Trigger);
+                    if (!standardOrder.SequenceEqual(skillLines))
+                    {
+                        string Order(IEnumerable<SkillLine> list) => string.Join(", ", list.Select(x => x.SkillId + (x.Trigger != null ? " (on " + x.Trigger + ")" : "")));
+                        if (updateCard.ReorderSkills ?? config.ReorderSkills)
+                        {
+                            Console.WriteLine($"  Skills reordered: {Order(skillLines)}  ->  {Order(standardOrder)}");
+                            skillLines = standardOrder;
+                        }
+                        else
+                        {
+                            Console.WriteLine($"  Skills kept in the order typed (REORDER: FALSE): {Order(skillLines)}. COMDEV's standard order would be: {Order(standardOrder)}");
+                        }
+                    }
+
                     // Tiered scaling comes from a "// SCALE:" comment above this card, or from config.xml.  null = AutoStats.
                     TieredScaling? tiered = updateCard.Scaling ?? (config.ScalingMode == ConfigStore.ScalingModes.Tiered ? config.Tiered : null);
 
@@ -369,9 +428,61 @@ namespace TUComparatorLibrary
 
                     roundToNearest = tiered != null;
 
+                    // Which tiered range each stage gets (index into tiered.FusionLevels); see TieredScaling.RangeIndexes.
+                    // A stage with no range (the first stage of a four-stage commander when only three ranges are set)
+                    // is left exactly as it is.
+                    List<int> rangeIndex = Enumerable.Repeat(0, cardXMLsToUpdate.Count).ToList();
+                    if (tiered != null && !isSummoned)
+                    {
+                        int.TryParse(cardXMLsToUpdate.Last().Element("fusion_level")?.Value.Trim(), out int topFusionLevel);
+                        rangeIndex = tiered.RangeIndexes(cardXMLsToUpdate.Count, topFusionLevel);
+
+                        for (int s = cardXMLsToUpdate.Count - 1; s >= 0; s--)
+                        {
+                            if (rangeIndex[s] < 0)
+                            {
+                                Console.WriteLine($"  {cardsToUpdate[s].name} [{cardsToUpdate[s].id}] left unchanged: {cardXMLsToUpdate.Count} stages but only {tiered.FusionLevels.Count} tiered ranges. Add a range for it (a fourth FusionLevel in config.xml, or a fourth range in // SCALE:) to scale it too.");
+                                cardXMLsToUpdate.RemoveAt(s);
+                                cardsToUpdate.RemoveAt(s);
+                                rangeIndex.RemoveAt(s);
+                            }
+                        }
+                    }
+
                     Console.WriteLine(tiered == null
                         ? "  Scaling: autostats"
-                        : $"  Scaling: tiered, {(isSummoned ? $"summoned card {tiered.Summoned}" : $"fusion levels {string.Join(", ", tiered.FusionLevels)}")}");
+                        : isSummoned
+                            ? $"  Scaling: tiered, summoned card {tiered.Summoned}"
+                            : "  Scaling: tiered, " + string.Join(", ", cardsToUpdate.Select((c, s) => $"{c.name} {tiered.FusionLevels[rangeIndex[s]]}")));
+
+                    // c (cooldown) and n (targets) follow the card's current design unless the update changes them
+                    // (see CountAndCooldown).  Read every stage's levels before anything is changed.
+                    List<List<List<XElement>>> oldLevels = cardXMLsToUpdate.Select(CountAndCooldown.EffectiveLevels).ToList();
+                    List<XElement> typedSkills = skillLines.Select(l => BuildSingleSkillXml(l, 1.0, 1.0)).ToList();
+                    CountAndCooldown countAndCooldown = new CountAndCooldown(typedSkills, oldLevels);
+                    int chainLevels = oldLevels.Sum(l => l.Count);
+                    foreach (string note in countAndCooldown.Notes)
+                    {
+                        Console.WriteLine("  " + note);
+                    }
+
+                    // Set 4750 is retired: a buffed 4750 card moves to 4500, unless "// SET: 4750" applies to it.
+                    foreach (XElement stage in cardXMLsToUpdate)
+                    {
+                        XElement? setNode = stage.Element("set");
+                        if (setNode != null && setNode.Value.Trim() == "4750")
+                        {
+                            if (updateCard.SetId == "4750")
+                            {
+                                Console.WriteLine($"  {stage.Element("name")?.Value} stays in set 4750 (// SET: 4750).");
+                            }
+                            else
+                            {
+                                setNode.Value = "4500";
+                                Console.WriteLine($"  {stage.Element("name")?.Value}: set 4750 -> 4500.");
+                            }
+                        }
+                    }
 
                     for (int i = 0; i < cardXMLsToUpdate.Count; i++)
                     {
@@ -400,8 +511,8 @@ namespace TUComparatorLibrary
 
                         if (tiered != null)
                         {
-                            // i is the fusion level: the chain is ordered from the base card up.
-                            scalingFactor = tiered.Factor(i, isSummoned, 1, upgrades.Count + 1);
+                            // this stage's range (see TieredScaling.RangeIndexes); the chain is ordered from the base card up.
+                            scalingFactor = tiered.Factor(rangeIndex[i], isSummoned, 1, upgrades.Count + 1);
                         }
 
                         // Level 1 is on the card
@@ -436,6 +547,10 @@ namespace TUComparatorLibrary
                             outputSkills.Add(BuildSingleSkillXml(skillLine, scalingFactor, summonScalingFactor));
                         }
 
+                        int stageFromTop = (cardXMLsToUpdate.Count - 1) - i;
+                        int levelsBefore = oldLevels.Take(i).Sum(l => l.Count);
+                        countAndCooldown.Apply(outputSkills, oldLevels[i][0], stageFromTop, 1, upgrades.Count + 1, levelsBefore + 1, chainLevels);
+
                         cardXmlToUpdate.XPathSelectElements("skill").Remove();
 
                         cardXmlToUpdate.Add(outputSkills.ToArray());
@@ -458,7 +573,7 @@ namespace TUComparatorLibrary
                             if (tiered != null)
                             {
                                 // upgrade k is level k + 2 (the base card is level 1)
-                                scalingFactor = tiered.Factor(i, isSummoned, k + 2, upgrades.Count + 1);
+                                scalingFactor = tiered.Factor(rangeIndex[i], isSummoned, k + 2, upgrades.Count + 1);
                             }
 
                             // Base card healths and attacks
@@ -486,6 +601,8 @@ namespace TUComparatorLibrary
                                 // Base them off of the last card.
                                 upgradeOutputSkills.Add(BuildSingleSkillXml(skillLine, scalingFactor, summonScalingFactor));
                             }
+
+                            countAndCooldown.Apply(upgradeOutputSkills, oldLevels[i][Math.Min(k + 1, oldLevels[i].Count - 1)], stageFromTop, k + 2, upgrades.Count + 1, levelsBefore + k + 2, chainLevels);
 
                             upgrade.XPathSelectElements("skill").Remove();
 
@@ -526,7 +643,7 @@ namespace TUComparatorLibrary
 
             }
 
-            SaveCards(cardsFailedToUpdate, newXmls, fileForCardId, warnings);
+            SaveCards(cardsFailedToUpdate, newXmls, fileForCardId, warnings, newCards);
         }
 
         /// <summary>True while the current card uses tiered scaling, which rounds to nearest instead of down.</summary>
@@ -627,9 +744,10 @@ namespace TUComparatorLibrary
             Updater.fusionData = fusionDataDoc.XPathSelectElements("//root/fusion_recipe").ToList();
         }
 
-        private void SaveCards(List<string> cardsFailedToUpdate, Dictionary<int, XElement> newXmls, Dictionary<int, int> fileForCardId, List<string>? warnings = null)
+        private void SaveCards(List<string> cardsFailedToUpdate, Dictionary<int, XElement> newXmls, Dictionary<int, int> fileForCardId, List<string>? warnings = null, NewCardsOutcome? newCards = null)
         {
             int cardsUpdated = 0;
+            List<(XElement After, XElement? Before)> reviewCards = new List<(XElement, XElement?)>();
 
             // we have a list of all the cards to update, and the files they're in.
             // for each file, check for updates, and if there are some, do them and then write to file.
@@ -645,6 +763,12 @@ namespace TUComparatorLibrary
                     }
                 }
 
+                // new cards added, or a picture replaced, in this file
+                if (newCards != null && newCards.TouchedFileIndexes.Contains(i + 1))
+                {
+                    hasUpdate = true;
+                }
+
                 if (hasUpdate)
                 {
                     // find the card IDs where this file is relevant.
@@ -656,8 +780,12 @@ namespace TUComparatorLibrary
                             XElement newXml = newXmls[cardId];
                             string cardName = newXml.XPathSelectElement("name")?.Value.ToString();
 
+                            // keep the card as it was, for the review page (buffs work on copies, so this is the original)
+                            XElement? beforeXml = oldCardXmls[i].XPathSelectElement($@"//unit[id='{cardId}']");
+                            reviewCards.Add((newXml, beforeXml == null || ReferenceEquals(beforeXml, newXml) ? null : new XElement(beforeXml)));
+
                             //add the new node
-                            oldCardXmls[i].XPathSelectElement($@"//unit[id='{cardId}']")?.ReplaceWith(newXml);
+                            beforeXml?.ReplaceWith(newXml);
 
                             // Write to new file in the folder.
                             File.WriteAllText($"{outputDirectory}//{cardName}.xml", newXml.ToString());
@@ -674,7 +802,15 @@ namespace TUComparatorLibrary
                 }
             }
 
-            Console.WriteLine($"{fileForCardId.Count} cards updated in {cardsUpdated} files.  The following cards failed to update:");
+            if (newCards != null && newCards.Units.Count > 0)
+            {
+                SaveNewCards(newCards);
+            }
+
+            Console.WriteLine($"{fileForCardId.Count} cards updated"
+                + (newCards != null ? $" and {newCards.Units.Count} new cards added" : string.Empty)
+                + $" in {cardsUpdated} files.  "
+                + (cardsFailedToUpdate.Count == 0 ? "No cards failed." : "The following cards failed to update:"));
 
             foreach (string failedCard in cardsFailedToUpdate)
             {
@@ -690,6 +826,58 @@ namespace TUComparatorLibrary
                     Console.WriteLine($"WARNING: {warning}");
                 }
             }
+
+            WriteReviewPage(reviewCards, newCards?.Units ?? new List<XElement>());
+        }
+
+        /// <summary>
+        /// review.html in the output folder: the changed and new cards in the Card XML Viewer, with its rule checks
+        /// (skill count, levels in order, values that dip, cost, lost skills ...).  Never fails the run.
+        /// </summary>
+        private void WriteReviewPage(List<(XElement After, XElement? Before)> changed, List<XElement> created)
+        {
+            if (changed.Count == 0 && created.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                string path = ReviewPage.Write(outputDirectory, reviewTitle, changed, created, Updater.fusionData);
+                Console.WriteLine();
+                Console.WriteLine($"Review page (check every card marked with a warning triangle): {path}");
+                if (config.OpenReviewPage)
+                {
+                    ReviewPage.Open(path);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Couldn't write the review page: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// New cards: recipes go into the fusion recipes file (its own formatting kept), and a copy of every new
+        /// card, the recipes and a summary go into the output folder for review.
+        /// </summary>
+        private void SaveNewCards(NewCardsOutcome newCards)
+        {
+            if (newCards.Recipes.Count > 0)
+            {
+                string recipesPath = $@"{oldXmlDirectory}//fusion_recipes_cj2.xml";
+                NewCardStep.AppendRecipesToFile(recipesPath, newCards.Recipes, newCards.Label);
+                Console.WriteLine($"fusion_recipes_cj2.xml: {newCards.Recipes.Count} new recipe(s) added.");
+            }
+
+            foreach (XElement unit in newCards.Units)
+            {
+                string fileName = string.Concat(unit.Element("name")!.Value.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+                File.WriteAllText($"{outputDirectory}//{fileName}.xml", unit.ToString());
+            }
+
+            File.WriteAllText($"{outputDirectory}//new_cards_recipes.xml", new XElement("root", newCards.Recipes).ToString());
+            File.WriteAllLines($"{outputDirectory}//new_cards_summary.txt", newCards.Summary.Concat(newCards.Warnings.Select(w => "WARNING: " + w)));
         }
 
         private void LoadOldCards(string oldXmlDirectory)
