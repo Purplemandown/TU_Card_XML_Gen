@@ -44,7 +44,7 @@ namespace TU_Card_XML_Gen.NewCards
             { "evolve", 22 }, { "enhance", 23 }, { "overload", 24 }, { "rush", 25 },
             { "fortify", 26 }, { "heal", 27 }, { "protect", 28 }, { "entrap", 29 }, { "rally", 30 },
             { "enrage", 31 }, { "enfeeble", 32 }, { "strike", 33 }, { "jam", 34 }, { "sunder", 35 },
-            { "besiege", 36 }, { "mimic", 37 },
+            { "besiege", 36 }, { "siege", 36 }, { "mimic", 37 },
             { "legion", 38 }, { "coalition", 39 }, { "venom", 40 }, { "pierce", 41 },
             { "hunt", 42 }, { "drain", 43 }, { "leech", 44 }, { "berserk", 45 }, { "mark", 46 },
             { "flurry", 47 },
@@ -60,7 +60,7 @@ namespace TU_Card_XML_Gen.NewCards
         // Typed word -> skill id.  CardBuilder's aliases, plus "zerk" (a buff-file shortcut).
         public static readonly Dictionary<string, string> Aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            { "armor", "armored" }, { "mortar", "besiege" }, { "siege", "besiege" }, { "zerk", "berserk" },
+            { "armor", "armored" }, { "mortar", "besiege" }, { "zerk", "berserk" },
         };
 
         public static readonly string[][] ExclusivePairs =
@@ -334,7 +334,7 @@ namespace TU_Card_XML_Gen.NewCards
             string? dupe = ids.GroupBy(x => x).Where(g => g.Count() > 1).Select(g => g.Key).FirstOrDefault();
             if (dupe != null)
             {
-                throw new FormatException($"skill \"{dupe}\" is listed more than once (check for a name/alias typo, e.g. Siege + Mortar are the same skill).");
+                throw new FormatException($"skill \"{dupe}\" is listed more than once (check for a name/alias typo, e.g. Mortar + Besiege are the same skill).");
             }
 
             List<NewCardSkill> sorted = InStandardOrder(skills, x => x.Id, x => x.Trigger);

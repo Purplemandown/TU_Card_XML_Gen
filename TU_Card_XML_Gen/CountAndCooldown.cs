@@ -13,7 +13,8 @@ namespace TU_Card_XML_Gen
     ///    "n-3" ladder is used: counting stages from the top, the top stage has n-1 on its levels and n on its last two
     ///    levels, the stage below n-2 and n-1, and so on, never below 1.  Typed "all" counts as n=5, so 5 and up become
     ///    all.  For a 3-stage card with n=4: 111122 222233 333344; with all: 222233 333344 4444,all,all.  n=1 is the
-    ///    same as no n.  Switching a skill between single (no n) and all keeps that typed choice on every level.
+    ///    same as no n.  Switching between single (no n) and all is a change too, so it uses the ladder.  A skill new
+    ///    to the card counts as changed.
     /// </summary>
     internal sealed class CountAndCooldown
     {
@@ -61,7 +62,6 @@ namespace TU_Card_XML_Gen
                 // n
                 int newN = N(skill);
                 int? oldN = old == null ? null : N(old);
-                bool numeric = (newN != All && newN > 1) || (oldN != null && oldN != All && oldN > 1);
                 if (old != null && newN == oldN)
                 {
                     nMode.Add(newN == 1 ? Mode.AsTyped : Mode.Keep);
@@ -70,14 +70,14 @@ namespace TU_Card_XML_Gen
                         Notes.Add($"{id}: n unchanged ({ShowN(newN)}), each level keeps its current n.");
                     }
                 }
-                else if (numeric)
+                else if (newN == 1 && (oldN ?? 1) == 1)
                 {
-                    nMode.Add(Mode.Rule);
-                    Notes.Add($"{id}: n {(old == null ? "new" : ShowN(oldN!.Value) + " ->")} {ShowN(newN)}, n-3 rule.");
+                    nMode.Add(Mode.AsTyped);   // a new single-target skill: nothing to ladder
                 }
                 else
                 {
-                    nMode.Add(Mode.AsTyped);
+                    nMode.Add(Mode.Rule);
+                    Notes.Add($"{id}: n {(old == null ? "new" : ShowN(oldN!.Value) + " ->")} {ShowN(newN)}, n-3 rule.");
                 }
             }
         }

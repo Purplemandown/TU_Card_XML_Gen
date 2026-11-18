@@ -255,8 +255,9 @@ COOLDOWN (c), TARGETS (n) AND SET 4750 (buffs)
       Jam 4              111122  222233  333344
       Jam all (was n)    222233  333344  4444,all,all
 
-    Switching between one target and all (Rally -> Rally all) keeps that
-    choice on every level.
+    Switching between one target and all is a change too: Rally -> Rally all
+    gets the ladder (222233 333344 4444,all,all); Strike all -> Strike gives one
+    target on every level. A skill new to the card counts as changed.
   The console says which rule each skill got, e.g. "jam: c 3 -> 2, c+4 rule".
 
   Set 4750 is retired: a buffed set 4750 card moves to set 4500 (the console
@@ -538,7 +539,8 @@ Mostly the same as buffs (section 3), with CardBuilder's rules:
   - Triggers can be written as for buffs (section 4).
   - Skills are put in COMDEV's standard order for you (the console says so),
     unless "// REORDER: FALSE" applies (see SKILL ORDER in section 2).
-  - A card is NOT built if it has a skill twice (Siege + Mortar count), or both of
+  - A card is NOT built if it has a skill twice (Mortar = Besiege;
+    Siege is a different skill), or both of
     Payback/Revenge, Valor/Bravery, Mend/Fortify, Weaken/Sunder,
     Poison/Venom, Siege/Mortar, Pierce/Rupture or Swipe/Drain.
 
@@ -624,6 +626,7 @@ CHANGES IN 1.9.0
     (see COOLDOWN (c), TARGETS (n) AND SET 4750 in section 2). Before, the typed
     c was copied to every level and n was scaled like a skill value.
   - Buffed set 4750 cards move to set 4500, unless "// SET: 4750" applies.
+  - New cards keep Siege as Siege (it used to be turned into Mortar/Besiege).
   - Skills that never go on one card now also include Poison/Venom,
     Siege/Mortar, Pierce/Rupture and Swipe/Drain.
 

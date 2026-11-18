@@ -322,7 +322,7 @@ These apply to buffs. Skill values (`x`), attack and health are scaled as descri
 | `Jam 4` | 1 1 1 1 2 2 | 2 2 2 2 3 3 | 3 3 3 3 4 4 |
 | `Jam all` (was a number) | 2 2 2 2 3 3 | 3 3 3 3 4 4 | 4 4 4 4 all all |
 
-  Switching a skill between one target and `all` (e.g. `Rally` to `Rally all`) keeps that choice on every level.
+  Switching between one target and `all` is a change too, so `Rally` → `Rally all` gets the ladder (2 2 2 2 3 3 / 3 3 3 3 4 4 / 4 4 4 4 all all), and `Strike all` → `Strike` gives one target on every level. A skill new to the card counts as changed.
 
 The console says which rule each skill got, e.g. `jam: c 3 -> 2, c+4 rule` or `jam: n unchanged (2), each level keeps its current n`.
 
@@ -401,7 +401,7 @@ Mostly the same as [buffs](#skill-syntax), with CardBuilder's rules:
 - `Summon <card name>`: a card in this file or an existing card. Level N of a single card summons level N; over a chain the summoned card's levels are spread evenly.
 - `Wall`, `Flying`: no value. Triggers can be written as for [buffs](#triggers).
 - Skills are put in COMDEV's standard order for you (the console says so), unless `// REORDER: FALSE` applies. See [Skill order](#skill-order).
-- A card is **not** built if it has a skill twice (Siege + Mortar count), or both of Payback/Revenge, Valor/Bravery, Mend/Fortify, Weaken/Sunder, Poison/Venom, Siege/Mortar, Pierce/Rupture or Swipe/Drain.
+- A card is **not** built if it has a skill twice (Mortar and Besiege are the same skill; Siege is a different one), or both of Payback/Revenge, Valor/Bravery, Mend/Fortify, Weaken/Sunder, Poison/Venom, Siege/Mortar, Pierce/Rupture or Swipe/Drain.
 
 ### Ids, recipes and pictures
 
@@ -454,6 +454,7 @@ This works for files changed by any tool, including older versions of this one.
 
 - **Cooldown and targets on buffs**: an unchanged `c` or `n` keeps the card's own per-level values; a changed `c` uses the `c`+4 rule and a changed `n` the n-3 ladder. Before, the typed `c` was copied to every level and `n` was scaled like a skill value. See [Cooldown (c), targets (n) and set 4750](#cooldown-c-targets-n-and-set-4750).
 - **Set 4750 → 4500** on buffed cards, unless `// SET: 4750` applies.
+- New cards keep `Siege` as Siege; it used to be turned into Mortar (Besiege), a different skill.
 - Skills that never go on one card now also include Poison/Venom, Siege/Mortar, Pierce/Rupture and Swipe/Drain (new cards and the review page).
 
 ## Changes in 1.8.0
