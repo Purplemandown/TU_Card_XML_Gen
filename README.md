@@ -308,7 +308,7 @@ To keep the order you typed for some cards, put a directive above them. It appli
 These apply to buffs. Skill values (`x`), attack and health are scaled as described above; `c` and `n` are not.
 
 **Cooldown `c`** (Jam and Flurry, "every c"). `c` = 1 is the same as no `c`.
-- If the update's `c` is the same as the card's current `c` (at the top card's max level), every level keeps the `c` it has now.
+- If the update's `c` is the same as the card's current `c` (at the top card's max level), every level keeps the `c` it has now. The exception is a `c` that is the same on every level of the chain: it gets the countdown below.
 - If it's different, it counts down evenly over the whole chain, from `c`+4 at the base card's level 1 to the new `c` at the top card's max level, so no level or fusion is worse than the one before. `every 2` on a three-card chain gives 6 6 6 5 5 5 | 5 4 4 4 4 3 | 3 3 3 2 2 2; on a single 6-level card, 6 5 4 4 3 2.
 
 **Targets `n`** (Jam, Overload, Enrage, Evolve, ...). `n` = 1 is the same as no `n`.

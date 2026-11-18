@@ -459,7 +459,7 @@ namespace TUComparatorLibrary
                     // (see CountAndCooldown).  Read every stage's levels before anything is changed.
                     List<List<List<XElement>>> oldLevels = cardXMLsToUpdate.Select(CountAndCooldown.EffectiveLevels).ToList();
                     List<XElement> typedSkills = skillLines.Select(l => BuildSingleSkillXml(l, 1.0, 1.0)).ToList();
-                    CountAndCooldown countAndCooldown = new CountAndCooldown(typedSkills, oldLevels.Last().Last());
+                    CountAndCooldown countAndCooldown = new CountAndCooldown(typedSkills, oldLevels);
                     int chainLevels = oldLevels.Sum(l => l.Count);
                     foreach (string note in countAndCooldown.Notes)
                     {

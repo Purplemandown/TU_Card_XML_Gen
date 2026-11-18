@@ -6,7 +6,7 @@ namespace TU_Card_XML_Gen
     /// How a buff sets a skill's c (cooldown, "every c") and n (number of targets) on each level.  x is not touched here.
     ///
     /// c: if the update keeps the card's current c (compared at the top card's max level), every level keeps the c it
-    ///    has now.  If the update changes c, it counts down evenly over the whole chain, from c+4 at the base card's
+    ///    has now, unless it is the same on every level of the chain: then it gets the countdown below too.  If the update changes c, it counts down evenly over the whole chain, from c+4 at the base card's
     ///    level 1 to the new c at the top card's max level, so every level and fusion is the same or better than the
     ///    one before (e.g. every 2 on three 6-level cards: 666555 544443 333222).  c=1 is the same as no c.
     ///
@@ -32,9 +32,11 @@ namespace TU_Card_XML_Gen
         public List<string> Notes { get; } = new List<string>();
 
         /// <param name="typedSkills">The update's skills at their typed (max-level) values, in output order.</param>
-        /// <param name="oldTopSkills">The card's skills now, at the top stage's max level.</param>
-        public CountAndCooldown(List<XElement> typedSkills, List<XElement> oldTopSkills)
+        /// <param name="oldLevels">The card's skills now: per stage (bottom first), per level.</param>
+        public CountAndCooldown(List<XElement> typedSkills, List<List<List<XElement>>> oldLevels)
         {
+            List<XElement> oldTopSkills = oldLevels.Last().Last();
+
             typed = typedSkills;
 
             foreach (XElement skill in typedSkills)
@@ -49,10 +51,16 @@ namespace TU_Card_XML_Gen
                 {
                     cMode.Add(Mode.AsTyped);
                 }
-                else if (old != null && newC == oldC)
+                else if (old != null && newC == oldC && !FlatC(oldLevels, skill))
                 {
                     cMode.Add(Mode.Keep);
                     Notes.Add($"{id}: c unchanged ({Show(newC)}), each level keeps its current c.");
+                }
+                else if (old != null && newC == oldC)
+                {
+                    // Trevor, 2026-11-18: a c that is the same on every level of the chain gets the countdown too.
+                    cMode.Add(Mode.Rule);
+                    Notes.Add($"{id}: c unchanged ({Show(newC)}) but the same on every level, c+4 rule (level 1 = {newC + 4}, max level = {Show(newC)}).");
                 }
                 else
                 {
@@ -140,6 +148,17 @@ namespace TU_Card_XML_Gen
             }
 
             return levels;
+        }
+
+        /// <summary>True if the skill's c is the same on every level of the chain that has it.</summary>
+        private static bool FlatC(List<List<List<XElement>>> oldLevels, XElement skill)
+        {
+            List<int> values = oldLevels.SelectMany(stage => stage)
+                .Select(level => Find(level, skill))
+                .Where(s => s != null)
+                .Select(s => C(s!))
+                .ToList();
+            return values.Count > 1 && values.Distinct().Count() == 1;
         }
 
         internal static int Ladder(int target, int stageFromTop, int level, int maxLevel)

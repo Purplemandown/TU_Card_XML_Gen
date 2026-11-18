@@ -240,7 +240,8 @@ COOLDOWN (c), TARGETS (n) AND SET 4750 (buffs)
   Skill values (x), attack and health are scaled as in section 6; c and n are not.
 
   c (Jam and Flurry "every c"). c=1 is the same as no c.
-  - Same c as the card has now (top card, max level): every level keeps its c.
+  - Same c as the card has now (top card, max level): every level keeps its c,
+    unless c is the same on every level of the chain; then it counts down too.
   - Different c: counts down evenly over the whole chain, from c+4 at the base
     card's level 1 to the new c at the top card's max level, so no level or
     fusion is worse than the one before. every 2 on a three-card chain:
