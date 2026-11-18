@@ -19,7 +19,7 @@ namespace TU_Card_XML_Gen
     /// </summary>
     internal sealed class CountAndCooldown
     {
-        private const int All = int.MaxValue;
+        internal const int All = int.MaxValue;
         private const int AllAsNumber = 5;
 
         private enum Mode { AsTyped, Keep, Rule }
@@ -142,7 +142,7 @@ namespace TU_Card_XML_Gen
             return levels;
         }
 
-        private static int Ladder(int target, int stageFromTop, int level, int maxLevel)
+        internal static int Ladder(int target, int stageFromTop, int level, int maxLevel)
         {
             bool typedAll = target == All;
             int top = typedAll ? AllAsNumber : target;

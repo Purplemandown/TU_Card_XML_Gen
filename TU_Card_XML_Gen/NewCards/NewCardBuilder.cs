@@ -342,7 +342,7 @@ namespace TU_Card_XML_Gen.NewCards
 
             for (int i = 0; i < spec.Names.Count; i++)
             {
-                UnitInfo unit = NewUnit(spec, spec.Names[i], tiers[i], stageLevels[i] - 1, chainOffset, chainTotal);
+                UnitInfo unit = NewUnit(spec, spec.Names[i], tiers[i], stageLevels[i] - 1, chainOffset, chainTotal, spec.Names.Count - 1 - i);
                 baseIds.Add(unit.BaseId);
 
                 if (i == 0 && spec.Recipe != null)
@@ -400,7 +400,7 @@ namespace TU_Card_XML_Gen.NewCards
             return (int)Math.Round(end + (start - end) * t);
         }
 
-        private UnitInfo NewUnit(NewCardSpec spec, string name, int tier, int numUpgrades, int chainOffset, int chainTotal)
+        private UnitInfo NewUnit(NewCardSpec spec, string name, int tier, int numUpgrades, int chainOffset, int chainTotal, int stageFromTop = 0)
         {
             string pool = spec.CardType;
             int reserve = numUpgrades + 1;
@@ -449,7 +449,7 @@ namespace TU_Card_XML_Gen.NewCards
 
             foreach (NewCardSkill skill in spec.Skills)
             {
-                unit.Add(SkillNode(skill, scale[1], name, 1, maxLevel, chainOffset, chainTotal));
+                unit.Add(SkillNode(skill, scale[1], name, 1, maxLevel, chainOffset, chainTotal, stageFromTop));
             }
 
             unit.Add(new XElement("set", spec.SetId));
@@ -471,7 +471,7 @@ namespace TU_Card_XML_Gen.NewCards
 
                 foreach (NewCardSkill skill in spec.Skills)
                 {
-                    up.Add(SkillNode(skill, scale[level], name, level, maxLevel, chainOffset, chainTotal));
+                    up.Add(SkillNode(skill, scale[level], name, level, maxLevel, chainOffset, chainTotal, stageFromTop));
                 }
 
                 unit.Add(up);
@@ -483,11 +483,17 @@ namespace TU_Card_XML_Gen.NewCards
         }
 
         /// <summary>CardBuilder's Write-SkillNode (player mode).  Attribute order matches: id all y x trigger c n s s2 card_id.</summary>
-        private XElement SkillNode(NewCardSkill skill, double factor, string cardName, int level, int maxLevel, int chainOffset, int chainTotal)
+        private XElement SkillNode(NewCardSkill skill, double factor, string cardName, int level, int maxLevel, int chainOffset, int chainTotal, int stageFromTop = 0)
         {
             XElement node = new XElement("skill", new XAttribute("id", skill.Id));
 
-            if (skill.All) node.SetAttributeValue("all", "1");
+            // Jam in a chain uses the n-3 ladder (Trevor, 2026-11-17): the top card has n-1 then n on its last two
+            // levels, one less per card below, never below 1; all counts as 5 (5 and up = all).  See CountAndCooldown.
+            int? jamLadder = skill.Id == "jam" && chainTotal > 0 && (skill.All || skill.N != null)
+                ? CountAndCooldown.Ladder(skill.All ? CountAndCooldown.All : skill.N!.Value, stageFromTop, level, maxLevel)
+                : null;
+
+            if (jamLadder != null ? jamLadder == CountAndCooldown.All : skill.All) node.SetAttributeValue("all", "1");
             if (skill.Y != null) node.SetAttributeValue("y", skill.Y.Value);
             if (skill.X != null) node.SetAttributeValue("x", Scale(skill.X.Value, skill.XConstant ? 1.0 : factor));
             if (skill.Trigger != null) node.SetAttributeValue("trigger", skill.Trigger);
@@ -499,10 +505,15 @@ namespace TU_Card_XML_Gen.NewCards
                 : LinearScaled(skill.C.Value + 4, skill.C.Value, level, maxLevel));
 
             // jam's n counts UP from 1 to the typed n; every other skill's n stays as typed.
-            // In a chain it runs over the whole chain, like c.
-            if (skill.N != null) node.SetAttributeValue("n", skill.Id == "jam"
-                ? (chainTotal > 0 ? LinearScaled(1, skill.N.Value, chainOffset + level, chainTotal) : LinearScaled(1, skill.N.Value, level, maxLevel))
-                : skill.N.Value);
+            // In a chain, jam uses the n-3 ladder above instead.
+            if (jamLadder != null)
+            {
+                if (jamLadder != CountAndCooldown.All && jamLadder > 1) node.SetAttributeValue("n", jamLadder);
+            }
+            else if (skill.N != null)
+            {
+                node.SetAttributeValue("n", skill.Id == "jam" ? LinearScaled(1, skill.N.Value, level, maxLevel) : skill.N.Value);
+            }
 
             if (skill.S != null) node.SetAttributeValue("s", skill.S.ToLowerInvariant());
             if (skill.S2 != null) node.SetAttributeValue("s2", skill.S2.ToLowerInvariant());
