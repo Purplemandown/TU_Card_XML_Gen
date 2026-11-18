@@ -6,8 +6,9 @@ namespace TU_Card_XML_Gen
     /// How a buff sets a skill's c (cooldown, "every c") and n (number of targets) on each level.  x is not touched here.
     ///
     /// c: if the update keeps the card's current c (compared at the top card's max level), every level keeps the c it
-    ///    has now.  If the update changes c, each stage counts down from c+4 at level 1 to the new c at its max level
-    ///    (CardBuilder's rule for new cards).  c=1 is the same as no c.
+    ///    has now.  If the update changes c, it counts down evenly over the whole chain, from c+4 at the base card's
+    ///    level 1 to the new c at the top card's max level, so every level and fusion is the same or better than the
+    ///    one before (e.g. every 2 on three 6-level cards: 666555 544443 333222).  c=1 is the same as no c.
     ///
     /// n: if the update keeps the card's current n, every level keeps the n (or all) it has now.  If it changes n, the
     ///    "n-3" ladder is used: counting stages from the top, the top stage has n-1 on its levels and n on its last two
@@ -86,7 +87,9 @@ namespace TU_Card_XML_Gen
         /// <param name="output">This level's skills, in the same order as the typed skills.</param>
         /// <param name="oldLevelSkills">The card's skills now, at this stage and level.</param>
         /// <param name="stageFromTop">0 for the top card, 1 for the stage below it, ...</param>
-        public void Apply(List<XElement> output, List<XElement> oldLevelSkills, int stageFromTop, int level, int maxLevel)
+        /// <param name="chainPosition">This level's position in the whole chain (1 = the base card's level 1).</param>
+        /// <param name="chainLevels">Levels in the whole chain (e.g. 18 for three 6-level cards).</param>
+        public void Apply(List<XElement> output, List<XElement> oldLevelSkills, int stageFromTop, int level, int maxLevel, int chainPosition, int chainLevels)
         {
             for (int j = 0; j < output.Count && j < typed.Count; j++)
             {
@@ -98,7 +101,8 @@ namespace TU_Card_XML_Gen
                 int c = cMode[j] switch
                 {
                     Mode.Keep => old != null ? C(old) : C(t),
-                    Mode.Rule => NewCards.NewCardBuilder.LinearScaled(C(t) + 4, C(t), level, maxLevel),
+                    // one countdown over the whole chain, so no level (or fusion) is worse than the one before
+                    Mode.Rule => NewCards.NewCardBuilder.LinearScaled(C(t) + 4, C(t), chainPosition, chainLevels),
                     _ => C(t),
                 };
                 node.SetAttributeValue("c", c > 1 ? c : null);

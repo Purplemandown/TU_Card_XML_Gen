@@ -241,8 +241,10 @@ COOLDOWN (c), TARGETS (n) AND SET 4750 (buffs)
 
   c (Jam and Flurry "every c"). c=1 is the same as no c.
   - Same c as the card has now (top card, max level): every level keeps its c.
-  - Different c: each card in the chain counts down from c+4 at level 1 to the
-    new c at its max level (as for new cards), e.g. every 2 = 6 5 4 4 3 2.
+  - Different c: counts down evenly over the whole chain, from c+4 at the base
+    card's level 1 to the new c at the top card's max level, so no level or
+    fusion is worse than the one before. every 2 on a three-card chain:
+    666555 544443 333222; on a single 6-level card: 6 5 4 4 3 2.
 
   n (Jam, Overload, Enrage, Evolve, ...). n=1 is the same as no n.
   - Same n (or all) as the card has now: every level keeps what it has.
@@ -530,7 +532,9 @@ Mostly the same as buffs (section 3), with CardBuilder's rules:
     Protect all Righteous 25. Only mend/fortify, heal, protect, entrap, rally,
     enrage, evolve, enhance, overload and rush can carry a faction.
   - Jam [n | all] [every c]: c counts DOWN from c+4 at level 1 to c at max;
-    n counts UP from 1 to n.  Flurry [x] [every c]: x stays the same at every level.
+    n counts UP from 1 to n.  In a chain both run over the whole chain (Jam 3
+    every 2: c 666555 544443 333222, n 111112 222222 233333).
+    Flurry [x] [every c]: x stays the same at every level.
   - Enhance [n | all] <skill> <value>.  Overload [n | all] [faction].
   - Evolve [n] <skill> [to] <skill>  (no "all" on new cards).
   - Summon <card name>: a card in this file or an existing card. Level N of a single
@@ -626,6 +630,8 @@ CHANGES IN 1.9.0
     (see COOLDOWN (c), TARGETS (n) AND SET 4750 in section 2). Before, the typed
     c was copied to every level and n was scaled like a skill value.
   - Buffed set 4750 cards move to set 4500, unless "// SET: 4750" applies.
+  - New-card chains: Jam/Flurry c and Jam n run over the whole chain instead of
+    restarting on each card.
   - New cards keep Siege as Siege (it used to be turned into Mortar/Besiege).
   - Skills that never go on one card now also include Poison/Venom,
     Siege/Mortar, Pierce/Rupture and Swipe/Drain.

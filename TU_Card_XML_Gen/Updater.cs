@@ -460,6 +460,7 @@ namespace TUComparatorLibrary
                     List<List<List<XElement>>> oldLevels = cardXMLsToUpdate.Select(CountAndCooldown.EffectiveLevels).ToList();
                     List<XElement> typedSkills = skillLines.Select(l => BuildSingleSkillXml(l, 1.0, 1.0)).ToList();
                     CountAndCooldown countAndCooldown = new CountAndCooldown(typedSkills, oldLevels.Last().Last());
+                    int chainLevels = oldLevels.Sum(l => l.Count);
                     foreach (string note in countAndCooldown.Notes)
                     {
                         Console.WriteLine("  " + note);
@@ -547,7 +548,8 @@ namespace TUComparatorLibrary
                         }
 
                         int stageFromTop = (cardXMLsToUpdate.Count - 1) - i;
-                        countAndCooldown.Apply(outputSkills, oldLevels[i][0], stageFromTop, 1, upgrades.Count + 1);
+                        int levelsBefore = oldLevels.Take(i).Sum(l => l.Count);
+                        countAndCooldown.Apply(outputSkills, oldLevels[i][0], stageFromTop, 1, upgrades.Count + 1, levelsBefore + 1, chainLevels);
 
                         cardXmlToUpdate.XPathSelectElements("skill").Remove();
 
@@ -600,7 +602,7 @@ namespace TUComparatorLibrary
                                 upgradeOutputSkills.Add(BuildSingleSkillXml(skillLine, scalingFactor, summonScalingFactor));
                             }
 
-                            countAndCooldown.Apply(upgradeOutputSkills, oldLevels[i][Math.Min(k + 1, oldLevels[i].Count - 1)], stageFromTop, k + 2, upgrades.Count + 1);
+                            countAndCooldown.Apply(upgradeOutputSkills, oldLevels[i][Math.Min(k + 1, oldLevels[i].Count - 1)], stageFromTop, k + 2, upgrades.Count + 1, levelsBefore + k + 2, chainLevels);
 
                             upgrade.XPathSelectElements("skill").Remove();
 

@@ -492,11 +492,17 @@ namespace TU_Card_XML_Gen.NewCards
             if (skill.X != null) node.SetAttributeValue("x", Scale(skill.X.Value, skill.XConstant ? 1.0 : factor));
             if (skill.Trigger != null) node.SetAttributeValue("trigger", skill.Trigger);
 
-            // c counts DOWN: level 1 = typed c + 4, max level = typed c.
-            if (skill.C != null) node.SetAttributeValue("c", LinearScaled(skill.C.Value + 4, skill.C.Value, level, maxLevel));
+            // c counts DOWN: typed c + 4 at level 1 to typed c at the max level.  In a chain the countdown runs over the
+            // whole chain (Trevor, 2026-11-17), so no level or fusion is worse than the one before.
+            if (skill.C != null) node.SetAttributeValue("c", chainTotal > 0
+                ? LinearScaled(skill.C.Value + 4, skill.C.Value, chainOffset + level, chainTotal)
+                : LinearScaled(skill.C.Value + 4, skill.C.Value, level, maxLevel));
 
             // jam's n counts UP from 1 to the typed n; every other skill's n stays as typed.
-            if (skill.N != null) node.SetAttributeValue("n", skill.Id == "jam" ? LinearScaled(1, skill.N.Value, level, maxLevel) : skill.N.Value);
+            // In a chain it runs over the whole chain, like c.
+            if (skill.N != null) node.SetAttributeValue("n", skill.Id == "jam"
+                ? (chainTotal > 0 ? LinearScaled(1, skill.N.Value, chainOffset + level, chainTotal) : LinearScaled(1, skill.N.Value, level, maxLevel))
+                : skill.N.Value);
 
             if (skill.S != null) node.SetAttributeValue("s", skill.S.ToLowerInvariant());
             if (skill.S2 != null) node.SetAttributeValue("s2", skill.S2.ToLowerInvariant());

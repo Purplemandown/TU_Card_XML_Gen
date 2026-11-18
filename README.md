@@ -309,7 +309,7 @@ These apply to buffs. Skill values (`x`), attack and health are scaled as descri
 
 **Cooldown `c`** (Jam and Flurry, "every c"). `c` = 1 is the same as no `c`.
 - If the update's `c` is the same as the card's current `c` (at the top card's max level), every level keeps the `c` it has now.
-- If it's different, each card in the chain counts down from `c`+4 at level 1 to the new `c` at its max level (the same rule as new cards), e.g. `every 2` gives 6 5 4 4 3 2.
+- If it's different, it counts down evenly over the whole chain, from `c`+4 at the base card's level 1 to the new `c` at the top card's max level, so no level or fusion is worse than the one before. `every 2` on a three-card chain gives 6 6 6 5 5 5 | 5 4 4 4 4 3 | 3 3 3 2 2 2; on a single 6-level card, 6 5 4 4 3 2.
 
 **Targets `n`** (Jam, Overload, Enrage, Evolve, ...). `n` = 1 is the same as no `n`.
 - If the update's `n` (or `all`) is the same as the card's current one, every level keeps what it has now.
@@ -396,7 +396,7 @@ A chain `A / B / C` is tiers 0, 1 and 2 (two names = tiers 1 and 2), and each la
 Mostly the same as [buffs](#skill-syntax), with CardBuilder's rules:
 
 - Most skills: `<Skill> [n | all] [faction] <value>`, e.g. `Sunder 3 15` (3 targets), `Protect all Righteous 25`. Only mend/fortify, heal, protect, entrap, rally, enrage, evolve, enhance, overload and rush can carry a faction.
-- `Jam [n | all] [every c]`: c counts **down** from c+4 at level 1 to c at max; n counts **up** from 1 to n. `Flurry [x] [every c]`: x stays the same at every level.
+- `Jam [n | all] [every c]`: c counts **down** from c+4 at level 1 to c at max; n counts **up** from 1 to n. In a chain both run over the whole chain (e.g. `Jam 3 every 2`: c 666555 544443 333222, n 111112 222222 233333). `Flurry [x] [every c]`: x stays the same at every level.
 - `Enhance [n | all] <skill> <value>`, `Overload [n | all] [faction]`, `Evolve [n] <skill> [to] <skill>` (no `all` on new cards).
 - `Summon <card name>`: a card in this file or an existing card. Level N of a single card summons level N; over a chain the summoned card's levels are spread evenly.
 - `Wall`, `Flying`: no value. Triggers can be written as for [buffs](#triggers).
@@ -453,6 +453,7 @@ This works for files changed by any tool, including older versions of this one.
 ## Changes in 1.9.0
 
 - **Cooldown and targets on buffs**: an unchanged `c` or `n` keeps the card's own per-level values; a changed `c` uses the `c`+4 rule and a changed `n` the n-3 ladder. Before, the typed `c` was copied to every level and `n` was scaled like a skill value. See [Cooldown (c), targets (n) and set 4750](#cooldown-c-targets-n-and-set-4750).
+- New-card chains: Jam/Flurry `c` and Jam `n` now run over the whole chain instead of restarting on each card, so no level or fusion is worse than the one before.
 - **Set 4750 → 4500** on buffed cards, unless `// SET: 4750` applies.
 - New cards keep `Siege` as Siege; it used to be turned into Mortar (Besiege), a different skill.
 - Skills that never go on one card now also include Poison/Venom, Siege/Mortar, Pierce/Rupture and Swipe/Drain (new cards and the review page).
